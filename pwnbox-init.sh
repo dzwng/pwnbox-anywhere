@@ -2,6 +2,7 @@
 # =============================================================================
 # pwnbox-init.sh — Unified Kali Pwnbox Setup
 # Combines: VNC (TigerVNC + XFCE), Guacamole (Docker), NoMachine, SSH
+#           VMware Tools clipboard fix (DISPLAY :0 enforcement)
 #
 # Usage:
 #   chmod +x pwnbox-init.sh
@@ -65,11 +66,14 @@ detect_installed() {
     INSTALLED_VNC=false
     INSTALLED_GUACAMOLE=false
     INSTALLED_NOMACHINE=false
+    INSTALLED_VMTOOLS=false
 
-    systemctl is-enabled ssh        &>/dev/null 2>&1 && INSTALLED_SSH=true        || true
+    systemctl is-enabled ssh         &>/dev/null 2>&1 && INSTALLED_SSH=true       || true
     systemctl is-enabled vncserver@1 &>/dev/null 2>&1 && INSTALLED_VNC=true       || true
-    { [ -d "$GUAC_DIR" ]          && INSTALLED_GUACAMOLE=true; } || true
-    { [ -f "/usr/NX/bin/nxserver" ] && INSTALLED_NOMACHINE=true; } || true
+    { [ -d "$GUAC_DIR" ]             && INSTALLED_GUACAMOLE=true; }               || true
+    { [ -f "/usr/NX/bin/nxserver" ]  && INSTALLED_NOMACHINE=true; }               || true
+    { [ -f "$KALI_HOME/.local/bin/vmtoolsd-clipboard.sh" ] \
+        && INSTALLED_VMTOOLS=true; }                                               || true
 }
 
 # =============================================================================
@@ -84,10 +88,11 @@ show_menu() {
     echo "╚══════════════════════════════════════════════════╝"
     echo ""
     echo "  Currently installed:"
-    $INSTALLED_SSH        && echo "    [✓] SSH"         || echo "    [ ] SSH"
-    $INSTALLED_VNC        && echo "    [✓] VNC"         || echo "    [ ] VNC"
-    $INSTALLED_GUACAMOLE  && echo "    [✓] Guacamole"   || echo "    [ ] Guacamole"
-    $INSTALLED_NOMACHINE  && echo "    [✓] NoMachine"   || echo "    [ ] NoMachine"
+    $INSTALLED_SSH       && echo "    [✓] SSH"                         || echo "    [ ] SSH"
+    $INSTALLED_VNC       && echo "    [✓] VNC"                         || echo "    [ ] VNC"
+    $INSTALLED_GUACAMOLE && echo "    [✓] Guacamole"                   || echo "    [ ] Guacamole"
+    $INSTALLED_NOMACHINE && echo "    [✓] NoMachine"                   || echo "    [ ] NoMachine"
+    $INSTALLED_VMTOOLS   && echo "    [✓] VMware Clipboard Fix"        || echo "    [ ] VMware Clipboard Fix"
     echo ""
     echo "  Select components to install/reinstall."
     echo "  Enter numbers separated by spaces (e.g: 1 3)"
@@ -97,7 +102,8 @@ show_menu() {
     echo "    2) VNC  (TigerVNC + XFCE — connect via any VNC client)"
     echo "    3) Guacamole  (Docker — browser-based, requires VNC)"
     echo "    4) NoMachine  (NX — best performance, attaches to display :0)"
-    echo "    5) All of the above"
+    echo "    5) VMware Clipboard Fix  (enforce vmtoolsd on DISPLAY :0)"
+    echo "    6) All of the above"
     echo ""
     read -rp "  Your choice: " MENU_INPUT
     echo ""
@@ -106,6 +112,7 @@ show_menu() {
     INSTALL_VNC=false
     INSTALL_GUACAMOLE=false
     INSTALL_NOMACHINE=false
+    INSTALL_VMTOOLS=false
 
     [[ -z "$MENU_INPUT" ]] && { log "No selection made. Exiting."; exit 0; }
 
@@ -115,7 +122,9 @@ show_menu() {
             2) INSTALL_VNC=true ;;
             3) INSTALL_GUACAMOLE=true; INSTALL_VNC=true ;;  # Guacamole needs VNC
             4) INSTALL_NOMACHINE=true ;;
-            5) INSTALL_SSH=true; INSTALL_VNC=true; INSTALL_GUACAMOLE=true; INSTALL_NOMACHINE=true ;;
+            5) INSTALL_VMTOOLS=true ;;
+            6) INSTALL_SSH=true; INSTALL_VNC=true; INSTALL_GUACAMOLE=true
+               INSTALL_NOMACHINE=true; INSTALL_VMTOOLS=true ;;
             *) warn "Unknown option: $choice — skipped" ;;
         esac
     done
@@ -125,6 +134,7 @@ show_menu() {
     if $INSTALL_VNC;       then echo "    → VNC"; fi
     if $INSTALL_GUACAMOLE; then echo "    → Guacamole (includes VNC)"; fi
     if $INSTALL_NOMACHINE; then echo "    → NoMachine"; fi
+    if $INSTALL_VMTOOLS;   then echo "    → VMware Clipboard Fix"; fi
     echo ""
     read -rp "  Confirm? (y/N): " CONFIRM
     [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]] && { log "Cancelled."; exit 0; }
@@ -144,6 +154,8 @@ install_base_packages() {
     if $INSTALL_GUACAMOLE; then pkgs="$pkgs docker.io docker-compose"; fi
     if $INSTALL_NOMACHINE; then pkgs="$pkgs xfce4 xfce4-goodies dbus-x11 xterm wget pulseaudio"; fi
     if $INSTALL_SSH;       then pkgs="$pkgs openssh-server"; fi
+    # open-vm-tools-desktop is required for clipboard support (GUI/vmusr plugin)
+    if $INSTALL_VMTOOLS;   then pkgs="$pkgs open-vm-tools open-vm-tools-desktop"; fi
 
     log "Installing: $pkgs"
     # shellcheck disable=SC2086
@@ -393,6 +405,128 @@ EOF
 }
 
 # =============================================================================
+# INSTALL: VMWARE TOOLS CLIPBOARD FIX
+#
+# Root cause: when VNC starts at boot via systemd, it claims DISPLAY :1.
+# The open-vm-tools XFCE autostart then launches vmtoolsd -n vmusr attached
+# to :1 instead of :0, breaking host ↔ VM clipboard sync.
+#
+# Fix: deploy a wrapper script that explicitly forces DISPLAY=:0, then
+# register it as an XFCE autostart entry so it runs on every :0 login.
+# The wrapper also kills any stale vmusr instance before starting fresh.
+# =============================================================================
+install_vmware_tools() {
+    section "VMware Tools Clipboard Fix"
+
+    # Ensure the desktop variant is installed — it carries the vmusr plugin
+    # (open-vm-tools alone does NOT include clipboard support)
+    if ! dpkg -l open-vm-tools-desktop &>/dev/null; then
+        log "Installing open-vm-tools-desktop..."
+        DEBIAN_FRONTEND=noninteractive apt-get install -y open-vm-tools open-vm-tools-desktop 2>/dev/null \
+            || warn "Could not install open-vm-tools-desktop — clipboard may not work"
+    else
+        log "open-vm-tools-desktop already installed"
+    fi
+
+    # Locate the vmusr plugin directory (path may differ across versions)
+    VMUSR_PLUGIN_DIR=""
+    for candidate in \
+        /usr/lib/open-vm-tools/plugins/vmusr \
+        /usr/lib/x86_64-linux-gnu/open-vm-tools/plugins/vmusr \
+        /usr/lib/vmware-tools/plugins/vmusr; do
+        if [ -d "$candidate" ]; then
+            VMUSR_PLUGIN_DIR="$candidate"
+            break
+        fi
+    done
+
+    if [ -z "$VMUSR_PLUGIN_DIR" ]; then
+        warn "vmusr plugin directory not found — skipping clipboard fix"
+        warn "Check: find /usr/lib -name 'libvmtools*' -o -name 'vmusr' -type d 2>/dev/null"
+        return
+    fi
+    log "vmusr plugin dir: $VMUSR_PLUGIN_DIR"
+
+    # ── Wrapper script ────────────────────────────────────────────────────────
+    # Runs as the normal user (not root). Forces DISPLAY=:0 so the vmusr
+    # plugin registers with the physical X session, not the VNC session (:1).
+    VMTOOLS_BIN_DIR="$KALI_HOME/.local/bin"
+    VMTOOLS_SCRIPT="$VMTOOLS_BIN_DIR/vmtoolsd-clipboard.sh"
+
+    mkdir -p "$VMTOOLS_BIN_DIR"
+    cat > "$VMTOOLS_SCRIPT" << WRAPPER
+#!/bin/bash
+# vmtoolsd-clipboard.sh — enforce DISPLAY :0 for VMware clipboard sync
+# Deployed by pwnbox-init.sh. Do not run as root.
+
+# Kill any existing vmusr instance (may be attached to wrong display)
+pkill -f "vmtoolsd -n vmusr" 2>/dev/null || true
+sleep 1
+
+# Start fresh on the physical display
+exec /usr/bin/vmtoolsd -n vmusr
+WRAPPER
+
+    chmod +x "$VMTOOLS_SCRIPT"
+    chown "$KALI_USER:$KALI_USER" "$VMTOOLS_SCRIPT"
+    log "Wrapper script written: $VMTOOLS_SCRIPT"
+
+    # ── XFCE autostart entry ─────────────────────────────────────────────────
+    # Runs on every XFCE session login on display :0.
+    # sleep 2 gives XFCE time to finish initialising before vmtoolsd attaches.
+    AUTOSTART_DIR="$KALI_HOME/.config/autostart"
+    AUTOSTART_FILE="$AUTOSTART_DIR/vmtoolsd-clipboard.desktop"
+
+    mkdir -p "$AUTOSTART_DIR"
+    cat > "$AUTOSTART_FILE" << DESKTOP
+[Desktop Entry]
+Type=Application
+Name=VMware Clipboard Sync
+Comment=Force vmtoolsd vmusr onto DISPLAY :0 for host<->VM clipboard
+Exec=bash -c 'sleep 2 && DISPLAY=:0 ${VMTOOLS_SCRIPT}'
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+DESKTOP
+
+    chown -R "$KALI_USER:$KALI_USER" "$AUTOSTART_DIR"
+    log "Autostart entry written: $AUTOSTART_FILE"
+
+    # ── Apply immediately (best-effort, non-fatal) ────────────────────────────
+    # Try to restart vmtoolsd vmusr right now on :0 so clipboard works without
+    # needing a logout/login. This only succeeds if an X :0 session is active.
+    log "Attempting to apply clipboard fix immediately..."
+    if XAUTHORITY=$(sudo -u "$KALI_USER" bash -c \
+            'ls /home/'"$KALI_USER"'/.Xauthority 2>/dev/null || \
+             ls /tmp/.Xauthority-'"$KALI_USER"' 2>/dev/null || \
+             ls /run/user/$(id -u '"$KALI_USER"')/.mutter-Xwaylandauth* 2>/dev/null | head -1' \
+        2>/dev/null); then
+        pkill -f "vmtoolsd -n vmusr" 2>/dev/null || true
+        sleep 1
+        sudo -u "$KALI_USER" env DISPLAY=:0 XAUTHORITY="$XAUTHORITY" \
+            "$VMTOOLS_SCRIPT" >/dev/null 2>&1 &
+        sleep 2
+        # Verify the new process is on :0
+        NEW_PID=$(pgrep -f "vmtoolsd -n vmusr" | head -1 || true)
+        if [ -n "$NEW_PID" ]; then
+            NEW_DISPLAY=$(cat /proc/"$NEW_PID"/environ 2>/dev/null \
+                | tr '\0' '\n' | grep "^DISPLAY=" || true)
+            if echo "$NEW_DISPLAY" | grep -q "^DISPLAY=:0"; then
+                log "vmtoolsd -n vmusr is now running on DISPLAY=:0 (PID $NEW_PID)"
+            else
+                warn "vmtoolsd started but display may be wrong ($NEW_DISPLAY)"
+                warn "Clipboard sync will be correct after next login"
+            fi
+        else
+            warn "vmtoolsd -n vmusr did not start immediately"
+            warn "Clipboard sync will be active after next login to display :0"
+        fi
+    else
+        warn "No active X :0 session detected — clipboard fix will apply on next login"
+    fi
+}
+
+# =============================================================================
 # ALIASES
 # =============================================================================
 install_aliases() {
@@ -432,12 +566,20 @@ alias nx-log='sudo tail -f /usr/NX/var/log/nxserver.log'
 "
     fi
 
+    if $INSTALL_VMTOOLS; then
+        ALIASES+="
+# VMware clipboard aliases
+alias clipboard-fix='pkill -f \"vmtoolsd -n vmusr\" 2>/dev/null; sleep 1; DISPLAY=:0 $KALI_HOME/.local/bin/vmtoolsd-clipboard.sh &'
+alias clipboard-status='VMPID=\$(pgrep -f \"vmtoolsd -n vmusr\"); [ -n \"\$VMPID\" ] && echo \"PID \$VMPID: \$(cat /proc/\$VMPID/environ 2>/dev/null | tr \"\\0\" \"\\n\" | grep DISPLAY)\" || echo \"vmtoolsd vmusr not running\"'
+"
+    fi
+
     [[ -z "$ALIASES" ]] && return
 
     for RC in "$KALI_HOME/.bashrc" "$KALI_HOME/.zshrc"; do
         [ -f "$RC" ] || continue
         # Avoid duplicate alias blocks
-        if ! grep -q "VNC aliases\|Self-hosted Pwnbox aliases\|NoMachine aliases" "$RC"; then
+        if ! grep -q "VNC aliases\|Self-hosted Pwnbox aliases\|NoMachine aliases\|VMware clipboard aliases" "$RC"; then
             echo "$ALIASES" >> "$RC"
             log "Added aliases to $RC"
         else
@@ -499,10 +641,20 @@ print_summary() {
         echo ""
     fi
 
+    if $INSTALL_VMTOOLS; then
+        echo "  [VMware Clipboard Fix]"
+        echo "    Wrapper:   $KALI_HOME/.local/bin/vmtoolsd-clipboard.sh"
+        echo "    Autostart: $KALI_HOME/.config/autostart/vmtoolsd-clipboard.desktop"
+        echo "    Active on: DISPLAY :0 (physical VMware console)"
+        echo "    Note:      Clipboard sync applies on next :0 login if not active now"
+        echo ""
+    fi
+
     echo "  Useful commands:"
     $INSTALL_VNC        && echo "    vncstatus / vncstart / vncstop"
     $INSTALL_GUACAMOLE  && echo "    guac-start / guac-stop / guac-log / pwnbox-status"
     $INSTALL_NOMACHINE  && echo "    nx-status / nx-restart / nx-log"
+    $INSTALL_VMTOOLS    && echo "    clipboard-fix / clipboard-status"
     echo ""
 
     if [[ "$TAILSCALE_IP" == *"not installed"* ]]; then
@@ -526,6 +678,7 @@ if $INSTALL_GUACAMOLE; then install_docker; fi
 if $INSTALL_GUACAMOLE; then install_vnc; fi       # VNC for Guacamole (deduped by VNC_SETUP_DONE flag)
 if $INSTALL_GUACAMOLE; then install_guacamole; fi
 if $INSTALL_NOMACHINE; then install_nomachine; fi
+if $INSTALL_VMTOOLS;   then install_vmware_tools; fi
 
 install_aliases
 print_summary
