@@ -1,23 +1,14 @@
-# Pwnbox Anywhere — runbook clean install từ A đến Z
+# Pwnbox Anywhere
 
-Tài liệu này ghi lại toàn bộ cách dựng một Kali pwnbox tại nhà và điều khiển từ MacBook. Nó giả định cả bốn thiết bị đều vừa clean install:
+Dựng một Kali pwnbox chạy trong VMware trên PC Windows tại nhà, rồi điều khiển từ MacBook ở bất cứ đâu. Một điện thoại Android cũ chạy Tailscale + Termux 24/7 làm relay để Wake-on-LAN bật PC khi nó đang tắt.
 
-- PC Windows 11 chạy VMware Workstation.
-- Kali Linux nằm trong VMware.
-- MacBook là máy điều khiển từ xa.
-- Android cũ chạy Tailscale + Termux 24/7, làm Wake-on-LAN relay.
-
-Tất cả thiết bị đăng nhập cùng một tailnet Tailscale. Không mở port trên router và không expose SSH/VNC ra Internet.
-
-## 1. Kết quả cuối cùng
+Bốn thiết bị cùng một tailnet Tailscale. **Không** mở port trên router, **không** expose SSH/VNC ra Internet.
 
 ```text
                                      Tailscale
 MacBook ──SSH:8022──> Android relay ──magic packet/LAN──> Windows PC
    │                                                        │
-   ├──────────── SSH:22 ─────────────────────────────────────┤
-   │                                                        └─ Scheduled Task
-   │                                                           mở VMware + Kali
+   ├──────────── SSH:22 ─────────────────────────────────> Windows ─ Scheduled Task ─> VMware + Kali
    │
    └──────────── SSH:22 ───────────────────────────────────> Kali VM
                          ├─ terminal
@@ -25,299 +16,105 @@ MacBook ──SSH:8022──> Android relay ──magic packet/LAN──> Window
                          └─ tunnel tới TigerVNC localhost:5901
 ```
 
-Các lệnh cuối cùng trên Mac:
+Android chỉ cần để **bật** PC khi PC đang tắt. Khi Windows đã chạy, Mac SSH thẳng vào Windows để bật/tắt VM và shutdown.
 
-| Lệnh | Việc thực hiện |
+## Lệnh hằng ngày (trên Mac)
+
+| Lệnh | Việc |
 |---|---|
-| `pc_up` | SSH vào Android và gửi WoL packet tới PC |
-| `kali_up` | SSH vào Windows và chạy Scheduled Task `Wake Kali VM` |
-| `pwnbox_up` | Chạy `pc_up`, chờ Windows, chạy `kali_up`, chờ Kali |
+| `pwnbox_up` | Bật cả chuỗi: WoL → chờ Windows → chạy task Kali → chờ Kali |
 | `pwnbox_ssh` | SSH vào Kali |
-| `pwnbox_vnc` | Bật VNC trên Kali và mở tunnel local port 5901 |
+| `pwnbox_vnc` | Bật VNC trên Kali + mở tunnel local `5901` |
 | `pwnbox_vnc_stop` | Tắt VNC session trên Kali |
-| `kali_down` | `vmrun stop ... soft`, sau đó đóng VMware GUI |
-| `pc_down` | Shutdown Windows qua SSH |
-| `pwnbox_down` | Chạy `kali_down`, sau đó `pc_down` |
+| `pwnbox_down` | Tắt đúng thứ tự: Kali trước, Windows sau |
+| `pc_up` / `kali_up` | Từng bước: WoL bật PC / chạy task `Wake Kali VM` |
+| `kali_down` / `pc_down` | Từng bước: tắt VM / shutdown Windows |
 
-Android chỉ cần thiết để **bật** PC khi PC đang tắt. Khi Windows đang chạy, Mac SSH trực tiếp vào Windows để bật/tắt VM và shutdown PC.
-
-## 2. File trong repo
+## File trong repo
 
 | File | Chạy ở đâu | Mục đích |
 |---|---|---|
-| `setup-android-termux.sh` | Termux | Cài OpenSSH + `wol`, tạo Termux:Boot script, giữ wake lock |
-| `setup-windows.ps1` | Windows PowerShell Administrator | Cài OpenSSH, cấu hình SSH key, WoL và Scheduled Task VMware |
-| `pwnbox.sh` | Kali | Cài SSH, TigerVNC, VMware guest tools và cấu hình Kali auto-login |
-| `macos-pwnbox.zsh.example` | Mac | Các function `pc_up`, `kali_up`, `pwnbox_up`, shutdown và VNC |
+| `setup-android-termux.sh` | Termux | OpenSSH + `wol`, Termux:Boot script, wake lock |
+| `setup-windows.ps1` | Windows PowerShell (Admin) | OpenSSH, SSH key, WoL, Scheduled Task VMware. Có chế độ `-Uninstall` |
+| `pwnbox.sh` | Kali | SSH, TigerVNC, VMware guest tools, auto-login. Có `uninstall` |
+| `macos-pwnbox.zsh.example` | Mac | Các function `pwnbox_up`, `pwnbox_ssh`, `pwnbox_vnc`, ... |
 
-`pwnbox.sh` cố ý không cài hoặc quản lý tmux. Nếu muốn dùng, bạn tự cài/chạy sau khi SSH vào Kali.
+## Thông tin cần chuẩn bị
 
-## 3. Chuẩn bị thông tin
-
-Trong tài liệu, thay toàn bộ placeholder sau bằng giá trị thật. Không giữ dấu `<` và `>`.
+Thay placeholder bằng giá trị thật (bỏ dấu `<` `>`).
 
 | Placeholder | Ví dụ | Cách lấy |
 |---|---|---|
 | `<ANDROID_TS_IP>` | `100.92.138.25` | Tailscale app trên Android |
-| `<TERMUX_USER>` | `u0_a350` | Chạy `whoami` trong Termux |
+| `<TERMUX_USER>` | `u0_a350` | `whoami` trong Termux |
 | `<WINDOWS_TS_IP>` | `100.83.173.85` | Tailscale app trên Windows |
-| `<WINDOWS_USER>` | `hband` | Chạy `$env:USERNAME` trong PowerShell |
+| `<WINDOWS_USER>` | `hband` | `$env:USERNAME` trong PowerShell |
 | `<ETHERNET_NAME>` | `Ethernet` | `Get-NetAdapter -Physical` |
 | `<PC_MAC>` | `10:FF:E0:C5:B2:B6` | `Get-NetAdapter -Name "Ethernet"` |
-| `<VMX_PATH>` | `D:\Vms\HTB-Kali\kali-linux-2026.1-vmware-amd64.vmx` | File `.vmx` của Kali |
+| `<VMX_PATH>` | `D:\Vms\HTB-Kali\kali...vmx` | File `.vmx` của Kali |
 | `<KALI_TS_IP>` | `100.x.y.z` | `tailscale ip -4` trên Kali |
 | `<KALI_USER>` | `kali` | User tạo lúc cài Kali |
 
-Nên giữ nguyên các tên sau để script/alias không phải sửa nhiều:
+Giữ nguyên các tên mặc định để script/alias khỏi phải sửa: task Windows `Wake Kali VM`; SSH host alias `pwnbox-android` / `pwnbox-windows` / `pwnbox-kali`; VNC display `:1`, port `5901`.
 
-- Windows Scheduled Task: `Wake Kali VM`
-- SSH host aliases trên Mac: `pwnbox-android`, `pwnbox-windows`, `pwnbox-kali`
-- VNC display: `:1`, local port `5901`
+---
 
-## 4. Cài Tailscale trên cả bốn thiết bị
+# Setup
 
-Đăng nhập cùng một tài khoản/tailnet trên cả bốn thiết bị. Trang tải chính thức: [tailscale.com/download](https://tailscale.com/download).
+## 1. Tailscale (cả 4 máy)
 
-### Android
+Đăng nhập cùng một tailnet trên cả 4 thiết bị ([tailscale.com/download](https://tailscale.com/download)).
 
-1. Cài Tailscale từ Play Store hoặc nguồn chính thức.
-2. Đăng nhập vào tailnet.
-3. Trong Android Settings → VPN → Tailscale, bật **Always-on VPN** nếu ROM hỗ trợ.
-4. Tắt battery optimization cho Tailscale.
-5. Cho phép chạy nền/auto-start và lock app trong recent apps nếu ROM có các tùy chọn này.
+- **Android:** cài từ Play Store, đăng nhập, bật Always-on VPN nếu có, tắt battery optimization.
+- **Windows:** cài, đăng nhập, reboot và xác nhận tự kết nối. Ghi lại `<WINDOWS_TS_IP>`.
+- **Kali / Mac:** `curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up` (Kali) hoặc app (Mac).
 
-### Windows 11
+Repo dùng OpenSSH bình thường, không phụ thuộc Tailscale SSH.
 
-1. Cài Tailscale.
-2. Đăng nhập cùng tailnet.
-3. Reboot và kiểm tra Tailscale tự kết nối trước khi làm bước tiếp theo.
-4. Ghi lại `<WINDOWS_TS_IP>`.
+## 2. Android relay (Termux)
 
-### Kali
-
-Sau khi Kali đã có Internet:
+Cài **Termux** và **Termux:Boot** từ **cùng một nguồn** F-Droid hoặc GitHub (không trộn nguồn khác signing key; bản Play Store cũ không dùng được). Mở mỗi app một lần, tắt battery optimization, bật auto-start.
 
 ```bash
-curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up
-tailscale ip -4
-```
-
-### MacBook
-
-1. Cài Tailscale cho macOS.
-2. Đăng nhập cùng tailnet.
-3. Xác nhận Mac nhìn thấy ba node còn lại trong Tailscale app.
-
-Tailscale chỉ vận chuyển traffic giữa các máy. Repo sử dụng OpenSSH bình thường, không phụ thuộc tính năng Tailscale SSH.
-
-## 5. Android relay: Termux + SSH + WoL
-
-### 5.1 Cài đúng bộ Termux
-
-Cài **Termux** và **Termux:Boot** từ cùng một nguồn F-Droid hoặc GitHub. Không trộn APK/plugin từ các nguồn có signing key khác nhau. Bản Termux Play Store cũ không được dùng.
-
-Nguồn tham khảo chính thức:
-
-- [Termux installation](https://github.com/termux/termux-app#installation)
-- [Termux:Boot](https://github.com/termux/termux-boot)
-
-Sau khi cài:
-
-1. Mở Termux ít nhất một lần.
-2. Mở app Termux:Boot ít nhất một lần. Đây là bước bắt buộc để Android cho nó nhận boot event.
-3. Tắt battery optimization cho Termux và Termux:Boot.
-4. Bật auto-start/background activity nếu ROM yêu cầu.
-5. Lock Termux và Tailscale trong recent apps.
-
-### 5.2 Chạy bootstrap script
-
-Trong Termux:
-
-```bash
-pkg update
-pkg install -y git
+pkg update && pkg install -y git
 git clone https://github.com/dzwng/pwnbox-anywhere.git
 cd pwnbox-anywhere
 bash setup-android-termux.sh
 ```
 
-Script sẽ:
+Script cài `openssh` + `wol`, tạo `~/.termux/boot/10-pwnbox-relay`, chạy `termux-wake-lock`, đặt password tạm cho `ssh-copy-id` lần đầu, và khởi động `sshd` trên port `8022`.
 
-- update Termux packages;
-- cài `openssh` và `wol`;
-- tạo `~/.termux/boot/10-pwnbox-relay`;
-- chạy `termux-wake-lock`;
-- yêu cầu tạo password tạm để Mac chạy `ssh-copy-id` lần đầu;
-- khởi động `sshd` trên port mặc định `8022`.
+Ghi lại `whoami` làm `<TERMUX_USER>`. Reboot Android và xác nhận từ máy khác: `ssh -p 8022 <TERMUX_USER>@<ANDROID_TS_IP>`.
 
-Kiểm tra:
+## 3. Windows
 
-```bash
-whoami
-ss -ltn | grep 8022
-ps -ef | grep '[s]shd'
-ls -l ~/.termux/boot/10-pwnbox-relay
-```
+**BIOS/UEFI:** bật virtualization (VT-x/SVM) và Wake-on-LAN (Power On By PCI-E / Resume By LAN); disable ErP/Deep Sleep nếu có (NIC cần còn điện ở S5). WoL tin cậy nhất với **Ethernet có dây**.
 
-Ghi lại kết quả `whoami` làm `<TERMUX_USER>`.
+**Chuẩn bị:** cài Windows Update + driver NIC, cài VMware Workstation, tạo/import Kali VM với đường dẫn `.vmx` cố định, boot Kali một lần từ console.
 
-Termux:Boot script sử dụng đúng flow được tài liệu chính thức khuyến nghị: gọi `termux-wake-lock` rồi `sshd` sau mỗi lần Android boot.
-
-### 5.3 Kiểm tra Android sống sau reboot
-
-Reboot Android, unlock máy một lần nếu ROM yêu cầu, đợi Tailscale kết nối rồi kiểm tra từ một thiết bị khác:
-
-```bash
-ssh -p 8022 <TERMUX_USER>@<ANDROID_TS_IP>
-```
-
-Ở giai đoạn này có thể login bằng Termux password. SSH key sẽ được cài ở phần MacBook.
-
-## 6. Windows 11: BIOS, WoL, VMware, SSH và auto-logon
-
-### 6.1 Tạo Windows account
-
-Khuyến nghị dùng một local administrator account có password thật, ví dụ `hband`:
-
-- Windows OpenSSH dùng password của account, không dùng Windows Hello PIN.
-- Scheduled Task Interactive và Sysinternals Autologon dùng cùng account này.
-- Không để account không có password.
-
-### 6.2 Bật virtualization và WoL trong BIOS/UEFI
-
-Tên option khác nhau theo mainboard. Bật các mục tương đương:
-
-- Intel VT-x/VT-d hoặc AMD SVM/IOMMU.
-- Wake on LAN / Power On By PCI-E / Resume By LAN.
-- Cho phép NIC nhận nguồn ở trạng thái S5/shutdown.
-
-Nếu có `ErP`, `Deep Sleep` hoặc option cắt toàn bộ nguồn cho PCI-E khi shutdown, hãy disable vì NIC cần còn điện để nhận magic packet.
-
-WoL đáng tin cậy nhất với **Ethernet có dây**. Android có thể ở Wi-Fi nhưng router/AP phải cho Wi-Fi client gửi broadcast tới Ethernet LAN; tắt AP/client isolation nếu đang bật.
-
-### 6.3 Cài Windows, driver và VMware
-
-1. Cài đầy đủ Windows Update.
-2. Cài driver chipset và Ethernet từ hãng mainboard/NIC.
-3. Cài VMware Workstation.
-4. Tạo thư mục VM cố định, ví dụ `D:\Vms\HTB-Kali`.
-5. Tạo/import Kali VM và giữ đường dẫn `.vmx` ổn định.
-
-Gợi ý tài nguyên ban đầu:
-
-- 4 vCPU.
-- 8 GB RAM nếu PC đủ RAM; giảm còn 4 GB nếu cần.
-- 80 GB disk hoặc hơn.
-- Network Adapter: NAT.
-- Disable `Accelerated 3D graphics` nếu gặp lỗi display; đây cũng là cấu hình Kali khuyến nghị trong [Kali VMware guest guide](https://www.kali.org/docs/virtualization/install-vmware-guest-vm/).
-
-Boot và hoàn tất cài Kali một lần từ VMware console trước khi tạo Scheduled Task.
-
-### 6.4 Cấu hình Windows bằng script
-
-Clone repo trên Windows hoặc copy folder này sang PC. Mở PowerShell bằng **Run as administrator**:
+**Chạy script** (PowerShell **Run as administrator**, tại thư mục repo):
 
 ```powershell
-cd D:\Code\pwnbox-anywhere
 Set-ExecutionPolicy -Scope Process Bypass
-Get-NetAdapter -Physical
+Get-NetAdapter -Physical          # lấy tên card mạng
+.\setup-windows.ps1 -VmxPath "<VMX_PATH>" -EthernetAdapter "<ETHERNET_NAME>" -DisableFastStartup
 ```
 
-Chọn đúng Ethernet adapter, sau đó chạy:
+Chỉ `-VmxPath` và `-EthernetAdapter` là **bắt buộc**; các flag khác đều có default. Script cài OpenSSH + firewall port 22, bật Wake-on-Magic-Packet, tắt Fast Startup (bắt buộc để WoL từ trạng thái shutdown hoạt động), và tạo Scheduled Task `Wake Kali VM` (`LogonType Interactive`, chạy `vmrun start "<VMX>" gui`).
+
+> Nếu chưa từng cài SSH key từ Mac, thêm `-MacPublicKey` — xem [Mac SSH key](#5-mac-ssh-key--config--aliases).
+
+**Auto-logon:** dùng [Sysinternals Autologon](https://learn.microsoft.com/en-us/sysinternals/downloads/autologon) (chạy Admin, điền user + password thật, Enable). Task cần một interactive desktop nên Windows phải vào thẳng desktop; **không** đổi task sang chạy `SYSTEM` (VMware GUI sẽ chạy vô hình).
+
+Kiểm tra khi đã auto-login và VMware đang đóng:
 
 ```powershell
-.\setup-windows.ps1 `
-    -VmxPath "<VMX_PATH>" `
-    -EthernetAdapter "<ETHERNET_NAME>" `
-    -WindowsUser "$env:COMPUTERNAME\<WINDOWS_USER>" `
-    -DisableFastStartup
+schtasks /run /tn "Wake Kali VM"     # VMware GUI phải hiện + Kali boot
 ```
 
-Script sẽ:
+## 4. Kali
 
-- cài Windows OpenSSH Server capability;
-- enable/start service `sshd` và firewall port 22;
-- bật Wake-on-Magic-Packet cho Ethernet adapter;
-- gọi `powercfg /deviceenablewake`;
-- disable Fast Startup khi có `-DisableFastStartup`;
-- tạo Scheduled Task `Wake Kali VM` với `LogonType Interactive`;
-- task chạy `vmrun start "<VMX_PATH>" gui`.
-
-Script không tự cấu hình Windows password hoặc auto-logon để password không bị đưa vào command history.
-
-### 6.5 Kiểm tra WoL trong Windows
-
-```powershell
-Get-NetAdapter -Name "<ETHERNET_NAME>"
-Get-NetAdapterPowerManagement -Name "<ETHERNET_NAME>"
-powercfg /devicequery wake_armed
-```
-
-Trong Device Manager → Network adapters → Ethernet NIC:
-
-1. Advanced → `Wake on Magic Packet`: Enabled.
-2. Nếu có `Shutdown Wake-On-Lan`: Enabled.
-3. Power Management → `Allow this device to wake the computer`: checked.
-4. `Only allow a magic packet to wake the computer`: checked.
-
-Sau khi shutdown, đèn cổng Ethernet trên PC/router nên vẫn sáng hoặc nhấp nháy. Nếu đèn tắt hoàn toàn, kiểm tra lại BIOS/ErP/NIC driver/Fast Startup.
-
-### 6.6 Cấu hình Windows auto-logon
-
-Dùng [Microsoft Sysinternals Autologon](https://learn.microsoft.com/en-us/sysinternals/downloads/autologon):
-
-1. Download và giải nén Autologon.
-2. Chạy `Autologon64.exe` bằng Administrator.
-3. Điền `<WINDOWS_USER>`, computer/domain và **password thật**.
-4. Chọn **Enable**.
-5. Reboot và xác nhận Windows vào thẳng desktop.
-
-Autologon lưu credential dưới dạng LSA secret thay vì để password plaintext trong script. Tuy nhiên admin cục bộ vẫn có thể trích xuất nó và người có quyền truy cập vật lý sẽ vào thẳng desktop; chỉ dùng khi PC ở vị trí được bảo vệ.
-
-### 6.7 Kiểm tra Scheduled Task
-
-Khi Windows đã auto-login và VMware đang đóng:
-
-```powershell
-schtasks /run /tn "Wake Kali VM"
-Get-ScheduledTask -TaskName "Wake Kali VM"
-Get-ScheduledTaskInfo -TaskName "Wake Kali VM"
-```
-
-Kết quả đúng: VMware GUI xuất hiện trong desktop session và Kali boot.
-
-Không đổi task sang chạy `SYSTEM` hoặc `Run whether user is logged on or not`: session đó không interactive nên VMware GUI có thể chạy vô hình. Đây là lý do flow sử dụng Windows auto-logon + `LogonType Interactive`.
-
-## 7. Kali VM: auto-login, SSH và TigerVNC
-
-### 7.1 Hoàn thiện Kali clean install
-
-Từ VMware console:
-
-1. Tạo user, ví dụ `kali`.
-2. Cài XFCE/LightDM (desktop mặc định của Kali installer là phù hợp).
-3. Update hệ thống:
-
-```bash
-sudo apt update
-sudo apt full-upgrade -y
-sudo reboot
-```
-
-Kali thường tự cài VMware guest tools khi phát hiện VMware. `pwnbox.sh` vẫn đảm bảo `open-vm-tools` và `open-vm-tools-desktop` có mặt để `vmrun stop ... soft` hoạt động. Tham khảo [Kali VMware Guest Tools](https://www.kali.org/docs/virtualization/install-vmware-guest-tools/).
-
-### 7.2 Cài Tailscale
-
-```bash
-curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up
-tailscale ip -4
-```
-
-Ghi lại `<KALI_TS_IP>`.
-
-### 7.3 Chạy pwnbox setup
+Từ VMware console: hoàn tất cài Kali (user + XFCE/LightDM), `sudo apt update && sudo apt full-upgrade -y`, cài Tailscale (mục 1), ghi lại `<KALI_TS_IP>`.
 
 ```bash
 git clone https://github.com/dzwng/pwnbox-anywhere.git
@@ -326,132 +123,38 @@ chmod +x pwnbox.sh
 sudo ./pwnbox.sh install --enable-autologin
 ```
 
-Script hỏi VNC password 6-8 ký tự. TigerVNC chỉ dùng tối đa 8 ký tự, nên script từ chối password dài hơn thay vì âm thầm cắt bớt.
+Script đảm bảo `openssh-server`, cài `tigervnc-standalone-server` + XFCE startup, `dbus-x11`, `open-vm-tools(-desktop)`, LightDM autologin drop-in, và command `/usr/local/bin/pwnbox`. Nó hỏi VNC password (**6–8 ký tự** — TigerVNC chỉ dùng tối đa 8).
 
-Những gì được cài/cấu hình:
+Reboot rồi xác nhận: `pwnbox status`, Kali vào thẳng XFCE, Tailscale + SSH chạy.
 
-- đảm bảo `openssh-server` có mặt và enable ở boot; SSH được xem là thành phần nền của Kali, không thuộc phạm vi uninstall của Pwnbox;
-- `tigervnc-standalone-server` và XFCE startup;
-- `dbus-x11`;
-- `open-vm-tools` + `open-vm-tools-desktop`;
-- LightDM drop-in `/etc/lightdm/lightdm.conf.d/50-pwnbox-autologin.conf`;
-- command `/usr/local/bin/pwnbox`.
+> Nếu máy đã có sẵn service VNC cũ (vd systemd `vncserver@1`), **tắt nó** để tránh tranh chấp display `:1`: `sudo systemctl disable --now vncserver@1`. Chỉ để pwnbox quản `:1`.
 
-tmux không nằm trong danh sách này.
+## 5. Mac: SSH key + config + aliases
 
-Reboot Kali:
+**Tạo 3 key riêng** (rotate/revoke từng máy độc lập):
 
 ```bash
-sudo reboot
-```
-
-Xác nhận:
-
-- Kali vào thẳng XFCE mà không hỏi password.
-- Tailscale tự kết nối.
-- SSH chạy.
-
-```bash
-pwnbox status
-systemctl status ssh --no-pager
-systemctl status open-vm-tools --no-pager
-tailscale status
-```
-
-### 7.4 TigerVNC on-demand
-
-VNC không chạy 24/7. Khi cần GUI từ xa:
-
-```bash
-pwnbox vnc start
-pwnbox vnc status
-```
-
-VNC chỉ listen trên `127.0.0.1:5901`; Mac phải đi qua SSH tunnel. Khi dùng xong:
-
-```bash
-pwnbox vnc stop
-```
-
-Đổi resolution hoặc password:
-
-```bash
-sudo VNC_RESOLUTION=2560x1440 pwnbox install
-sudo pwnbox install --reset-vnc-password
-```
-
-### 7.5 tmux là phần riêng của user
-
-Nếu clean Kali chưa có tmux và bạn muốn dùng:
-
-```bash
-sudo apt install -y tmux
-tmux
-```
-
-`pwnbox.sh` không cài, tạo alias, kiểm tra status hoặc uninstall tmux.
-
-## 8. MacBook: SSH key cho Android, Windows và Kali
-
-### 8.1 Tạo ba key riêng
-
-```bash
-mkdir -p ~/.ssh
-chmod 700 ~/.ssh
-
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
 ssh-keygen -t ed25519 -a 100 -f ~/.ssh/pwnbox_android -C 'mac-to-android'
 ssh-keygen -t ed25519 -a 100 -f ~/.ssh/pwnbox_windows -C 'mac-to-windows'
-ssh-keygen -t ed25519 -a 100 -f ~/.ssh/pwnbox_kali -C 'mac-to-kali'
-
-chmod 600 ~/.ssh/pwnbox_android ~/.ssh/pwnbox_windows ~/.ssh/pwnbox_kali
-chmod 644 ~/.ssh/pwnbox_android.pub ~/.ssh/pwnbox_windows.pub ~/.ssh/pwnbox_kali.pub
+ssh-keygen -t ed25519 -a 100 -f ~/.ssh/pwnbox_kali    -C 'mac-to-kali'
 ```
 
-Có thể đặt passphrase cho key và lưu vào macOS Keychain. Ba key riêng giúp rotate/revoke từng thiết bị mà không ảnh hưởng hai máy còn lại.
-
-### 8.2 Copy key vào Android
+**Cài key vào Android & Kali:**
 
 ```bash
-ssh-copy-id \
-  -i ~/.ssh/pwnbox_android.pub \
-  -p 8022 \
-  <TERMUX_USER>@<ANDROID_TS_IP>
+ssh-copy-id -i ~/.ssh/pwnbox_android.pub -p 8022 <TERMUX_USER>@<ANDROID_TS_IP>
+ssh-copy-id -i ~/.ssh/pwnbox_kali.pub <KALI_USER>@<KALI_TS_IP>
 ```
 
-Nhập Termux password đã tạo ở bootstrap script.
-
-### 8.3 Copy key vào Kali
-
-```bash
-ssh-copy-id \
-  -i ~/.ssh/pwnbox_kali.pub \
-  <KALI_USER>@<KALI_TS_IP>
-```
-
-### 8.4 Cài Windows key
-
-Copy public key vào clipboard trên Mac:
-
-```bash
-pbcopy < ~/.ssh/pwnbox_windows.pub
-```
-
-Trên Windows, mở PowerShell Administrator tại repo và paste key vào biến. Dùng single quote vì public key là dữ liệu, không phải lệnh:
+**Cài key vào Windows** (admin account đọc `%ProgramData%\ssh\administrators_authorized_keys`, không phải file user). Copy key trên Mac `pbcopy < ~/.ssh/pwnbox_windows.pub`, rồi trên Windows (Admin):
 
 ```powershell
 $MacPublicKey = 'ssh-ed25519 AAAA... mac-to-windows'
-
-.\setup-windows.ps1 `
-    -VmxPath "<VMX_PATH>" `
-    -EthernetAdapter "<ETHERNET_NAME>" `
-    -WindowsUser "$env:COMPUTERNAME\<WINDOWS_USER>" `
-    -MacPublicKey $MacPublicKey `
-    -DisableFastStartup
+.\setup-windows.ps1 -VmxPath "<VMX_PATH>" -EthernetAdapter "<ETHERNET_NAME>" -MacPublicKey $MacPublicKey -DisableFastStartup
 ```
 
-Với Windows administrator account, OpenSSH đọc `%ProgramData%\ssh\administrators_authorized_keys`, không đọc file user thông thường. Script đặt key đúng file và sửa ACL chỉ còn Administrators + SYSTEM theo yêu cầu của [Microsoft OpenSSH key management](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_keymanagement).
-
-### 8.5 Tạo `~/.ssh/config`
+**`~/.ssh/config`** (rồi `chmod 600 ~/.ssh/config`):
 
 ```sshconfig
 Host pwnbox-android
@@ -466,7 +169,6 @@ Host pwnbox-android
 Host pwnbox-windows
     HostName <WINDOWS_TS_IP>
     User <WINDOWS_USER>
-    Port 22
     IdentityFile ~/.ssh/pwnbox_windows
     IdentitiesOnly yes
     ServerAliveInterval 30
@@ -475,7 +177,6 @@ Host pwnbox-windows
 Host pwnbox-kali
     HostName <KALI_TS_IP>
     User <KALI_USER>
-    Port 22
     IdentityFile ~/.ssh/pwnbox_kali
     IdentitiesOnly yes
     ServerAliveInterval 30
@@ -485,348 +186,134 @@ Host pwnbox-kali
     ControlPath ~/.ssh/cm-%C
 ```
 
-```bash
-chmod 600 ~/.ssh/config
-```
+`ServerAliveInterval/CountMax` giữ kết nối khỏi rớt khi mạng chập chờn. `ControlMaster/Persist/Path` (chỉ Kali — máy hay mở/đóng SSH liên tục) tái dùng một kết nối master để lần sau vào gần như tức thì. Test: `ssh pwnbox-android whoami`, `ssh pwnbox-windows whoami`, `ssh pwnbox-kali whoami` — cả ba không hỏi password.
 
-Test từng hop và kiểm tra host-key fingerprint trước khi accept:
+**Aliases:**
 
 ```bash
-ssh pwnbox-android 'whoami'
-ssh pwnbox-windows 'whoami'
-ssh pwnbox-kali 'whoami'
-```
-
-Chỉ tiếp tục khi cả ba lệnh không hỏi account password.
-
-### 8.6 Tắt password SSH sau khi key đã test
-
-Đây là bước tùy chọn nhưng nên làm. Luôn giữ một SSH terminal đang mở trong lúc test terminal mới.
-
-Android/Termux:
-
-```bash
-ssh pwnbox-android
-grep -q '^PasswordAuthentication ' "$PREFIX/etc/ssh/sshd_config" \
-  && sed -i 's/^PasswordAuthentication .*/PasswordAuthentication no/' "$PREFIX/etc/ssh/sshd_config" \
-  || printf '\nPasswordAuthentication no\n' >> "$PREFIX/etc/ssh/sshd_config"
-pkill -f '[s]shd'
-sshd
-exit
-```
-
-Kali:
-
-```bash
-ssh pwnbox-kali
-printf 'PasswordAuthentication no\n' | \
-  sudo tee /etc/ssh/sshd_config.d/99-pwnbox.conf
-sudo sshd -t
-sudo systemctl reload ssh
-exit
-```
-
-Windows PowerShell Administrator:
-
-```powershell
-$sshdConfig = "$env:ProgramData\ssh\sshd_config"
-$content = Get-Content -LiteralPath $sshdConfig -Raw
-if ($content -match '(?m)^\s*PasswordAuthentication\s+') {
-    $content = $content -replace '(?m)^\s*PasswordAuthentication\s+.*$', 'PasswordAuthentication no'
-} else {
-    $content += "`r`nPasswordAuthentication no`r`n"
-}
-Set-Content -LiteralPath $sshdConfig -Value $content -Encoding ascii
-& "$env:WINDIR\System32\OpenSSH\sshd.exe" -t
-Restart-Service sshd
-```
-
-Mở terminal Mac mới và test lại cả ba host. Nếu key login lỗi, dùng console cục bộ để hoàn tác dòng `PasswordAuthentication no`.
-
-## 9. MacBook: aliases và workflow
-
-### 9.1 Cài function file
-
-Clone repo trên Mac:
-
-```bash
-git clone https://github.com/dzwng/pwnbox-anywhere.git ~/Code/pwnbox-anywhere
 mkdir -p ~/.config/pwnbox
-cp ~/Code/pwnbox-anywhere/macos-pwnbox.zsh.example \
-  ~/.config/pwnbox/aliases.zsh
-nano ~/.config/pwnbox/aliases.zsh
-```
-
-Sửa ba dòng đầu:
-
-```zsh
-PWNBOX_PC_MAC='<PC_MAC>'
-PWNBOX_VMRUN='C:\Program Files (x86)\VMware\VMware Workstation\vmrun.exe'
-PWNBOX_VMX='<VMX_PATH>'
-```
-
-Thêm cuối `~/.zshrc`:
-
-```zsh
-source ~/.config/pwnbox/aliases.zsh
-```
-
-Apply:
-
-```bash
+cp macos-pwnbox.zsh.example ~/.config/pwnbox/aliases.zsh
+# sửa 3 dòng đầu: PWNBOX_PC_MAC, PWNBOX_VMRUN, PWNBOX_VMX
+echo 'source ~/.config/pwnbox/aliases.zsh' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-### 9.2 Bật từng tầng
+---
+
+# Sử dụng
+
+**Bật & vào:**
 
 ```bash
-pc_up
-# Chờ Windows boot + Autologon hoàn tất.
-kali_up
-# Chờ Kali boot + Tailscale + sshd.
+pwnbox_up      # WoL → chờ Windows → task Kali → chờ Kali (tự chờ mỗi tầng)
 pwnbox_ssh
 ```
 
-Hoặc tự động chờ:
+**Browser port-forward** (tool Kali chạy ở `127.0.0.1:8080`):
 
 ```bash
-pwnbox_up
-pwnbox_ssh
+ssh -N -L 8080:127.0.0.1:8080 pwnbox-kali      # rồi mở http://127.0.0.1:8080 trên Mac
 ```
 
-`pwnbox_up` thực hiện:
-
-1. Android gửi WoL.
-2. Poll Windows SSH tối đa 180 giây.
-3. Chờ thêm 20 giây để Autologon tạo interactive desktop.
-4. Chạy Scheduled Task `Wake Kali VM`.
-5. Poll Kali SSH tối đa 240 giây.
-
-### 9.3 Terminal và tmux
+**VNC** (server chỉ listen `127.0.0.1:5901`, bắt buộc qua tunnel):
 
 ```bash
-pwnbox_ssh
-tmux
+pwnbox_vnc          # start VNC + giữ tunnel ở foreground
 ```
 
-Hoặc tự attach session bằng lệnh bạn tự quản lý:
+Mở TigerVNC/RealVNC Viewer → `127.0.0.1:5901`. `Ctrl-C` chỉ đóng tunnel, session VNC vẫn chạy để reconnect. Tắt hẳn: `pwnbox_vnc_stop`.
 
-```bash
-ssh -t pwnbox-kali 'tmux new-session -A -s main'
-```
+> **Retina bị mờ?** VNC là ảnh bitmap cố định nên khi scale lên màn HiDPI sẽ nhòe. Đặt resolution khớp panel Mac + xem viewer ở 100% (xem [Config](#cấu-hình-vnc)).
 
-### 9.4 Browser local port-forward
-
-Nếu tool trên Kali chạy ở `127.0.0.1:8080`:
-
-```bash
-ssh -N -L 8080:127.0.0.1:8080 pwnbox-kali
-```
-
-Mở [http://127.0.0.1:8080](http://127.0.0.1:8080) trên Mac.
-
-Nhiều port trong một connection:
-
-```bash
-ssh -N \
-  -L 8080:127.0.0.1:8080 \
-  -L 3000:127.0.0.1:3000 \
-  -L 8000:127.0.0.1:8000 \
-  pwnbox-kali
-```
-
-### 9.5 TigerVNC
-
-```bash
-pwnbox_vnc
-```
-
-Function sẽ:
-
-1. SSH vào Kali chạy `pwnbox vnc start`.
-2. Mở tunnel Mac `5901` → Kali `127.0.0.1:5901`.
-3. Giữ tunnel ở foreground.
-
-Mở TigerVNC Viewer/RealVNC Viewer và connect `127.0.0.1:5901`. `Ctrl-C` chỉ đóng tunnel; session VNC trên Kali vẫn chạy để reconnect. Tắt hẳn:
-
-```bash
-pwnbox_vnc_stop
-```
-
-### 9.6 Shutdown đúng thứ tự
-
-Từng bước:
-
-```bash
-kali_down
-pc_down
-```
-
-Hoặc:
+**Tắt** (luôn Kali trước, Windows sau — `kali_down` dùng `vmrun stop ... soft`, cần open-vm-tools):
 
 ```bash
 pwnbox_down
 ```
 
-`kali_down` dùng `vmrun stop ... soft`, cần `open-vm-tools` trong Kali. Chỉ shutdown Windows sau khi lệnh này hoàn tất. Không dùng `vmrun ... hard` trừ trường hợp recovery vì nó tương đương rút điện VM.
+---
 
-## 10. End-to-end acceptance test
+# Cấu hình
 
-Chỉ coi setup hoàn tất sau khi pass đầy đủ checklist này.
+## Cấu hình VNC
 
-### Test A — Android relay
-
-1. Reboot Android.
-2. Không mở Termux thủ công.
-3. Đợi Tailscale online.
-4. Từ Mac: `ssh pwnbox-android 'ps -ef | grep "[s]shd"'`.
-
-### Test B — WoL từ trạng thái Windows shutdown
-
-1. Shutdown Windows hoàn toàn.
-2. Xác nhận Android vẫn online.
-3. Chạy `pc_up` trên Mac.
-4. Xác nhận PC bật và Windows vào thẳng desktop.
-5. Xác nhận `ssh pwnbox-windows 'whoami'` hoạt động.
-
-### Test C — Scheduled Task mở VMware GUI
-
-1. Đảm bảo Windows đã auto-login.
-2. Chạy `kali_up`.
-3. Xác nhận VMware GUI xuất hiện và Kali boot.
-4. Xác nhận `ssh pwnbox-kali 'pwnbox status'` hoạt động.
-
-### Test D — Web tunnel và VNC
-
-1. Chạy một HTTP service thử trên Kali.
-2. Forward port và mở từ browser Mac.
-3. Chạy `pwnbox_vnc`, connect VNC viewer.
-4. Chạy `pwnbox_vnc_stop`.
-
-### Test E — Shutdown
-
-1. Chạy `kali_down` và xác nhận VM tắt.
-2. Chạy `pc_down` và xác nhận PC tắt.
-3. Android và Tailscale relay vẫn online để có thể bắt đầu vòng mới.
-
-## 11. Troubleshooting
-
-### Mac không SSH được Android sau reboot
-
-- Mở Termux:Boot một lần sau khi cài.
-- Termux và Termux:Boot phải cùng nguồn/signing key.
-- Tắt battery optimization cho Termux, Termux:Boot và Tailscale.
-- Bật auto-start/background activity theo ROM.
-- Kiểm tra `~/.termux/boot/10-pwnbox-relay` executable.
-- Mở Termux và chạy lại `termux-wake-lock; sshd`.
-
-### `wol <PC_MAC>` chạy nhưng PC không bật
-
-- Test WoL khi Android và PC cùng LAN trước khi test qua SSH.
-- PC phải dùng Ethernet có dây.
-- Kiểm tra BIOS Wake on LAN/PCI-E và disable ErP/deep sleep.
-- Kiểm tra Fast Startup đã tắt.
-- Kiểm tra NIC LED còn sáng sau shutdown.
-- Kiểm tra đúng MAC của Ethernet, không lấy MAC Wi-Fi/Tailscale adapter.
-- Tắt Wi-Fi client isolation/AP isolation.
-- Cập nhật NIC driver từ hãng.
-
-### Windows SSH không vào được
-
-Trên Windows console:
-
-```powershell
-Get-Service sshd
-Get-NetFirewallRule -Name OpenSSH-Server-In-TCP
-Get-Service Tailscale
-```
-
-Windows Hello PIN không phải SSH password. Dùng account password hoặc public key.
-
-### Windows public key bị từ chối
-
-Với administrator account:
-
-```powershell
-Get-Content "$env:ProgramData\ssh\administrators_authorized_keys"
-icacls "$env:ProgramData\ssh\administrators_authorized_keys"
-```
-
-ACL chỉ nên có SYSTEM và Administrators. Chạy lại `setup-windows.ps1 -MacPublicKey ...` để script sửa file/ACL.
-
-### `kali_up` báo success nhưng VMware không xuất hiện
-
-- Xác nhận Windows đã auto-login và `explorer.exe` đang chạy.
-- Task principal phải đúng `<WINDOWS_USER>`.
-- `LogonType` phải là `Interactive`.
-- Kiểm tra `<VMX_PATH>` và `vmrun.exe`.
-- Chạy task trực tiếp tại Windows console.
-
-```powershell
-Get-ScheduledTaskInfo -TaskName "Wake Kali VM"
-schtasks /run /tn "Wake Kali VM"
-```
-
-### Kali không shutdown bằng `vmrun ... soft`
+Đổi resolution (đặt bằng panel vật lý của Mac để nét nhất, vd MacBook Air 13" = `2560x1664`):
 
 ```bash
-systemctl status open-vm-tools --no-pager
-sudo apt install --reinstall open-vm-tools open-vm-tools-desktop
-sudo systemctl enable --now open-vm-tools
-```
-
-### Kali boot nhưng SSH chưa vào được
-
-Từ VMware console:
-
-```bash
-systemctl status ssh --no-pager
-systemctl status tailscaled --no-pager
-tailscale status
-sudo systemctl restart ssh tailscaled
-```
-
-### VNC không connect
-
-```bash
-pwnbox status
+sudo VNC_RESOLUTION=2560x1664 pwnbox install
 pwnbox vnc restart
-ss -ltn | grep 5901
-find ~/.config/tigervnc ~/.vnc -name '*:1.log' -type f -print 2>/dev/null
 ```
 
-Port 5901 trên Kali phải chỉ bind localhost; đừng sửa thành `0.0.0.0`. Kiểm tra tunnel Mac vẫn đang chạy.
-
-## 12. Backup tối thiểu sau khi setup xong
-
-Không backup private key lên repo. Nên lưu an toàn các mục sau:
-
-- Repo này.
-- Bản ghi placeholder/inventory nhưng không chứa password.
-- Ba private SSH key của Mac trong encrypted backup.
-- Tailscale recovery/account access.
-- VMware `.vmx` path và VM backup/snapshot phù hợp.
-- Windows local account recovery information.
-- BIOS WoL/virtualization screenshots.
-
-Sau mỗi lần đổi NIC, mainboard, Windows user, Android hoặc Kali VM, cập nhật inventory và SSH config/alias tương ứng.
-
-## 13. Gỡ pwnbox khỏi Kali
+Nếu chữ quá nhỏ ở resolution cao, tăng DPI trong phiên VNC (khoảng 144–168, đừng vọt cao khi resolution còn thấp kẻo phóng to quá):
 
 ```bash
-sudo pwnbox uninstall vnc
-sudo pwnbox uninstall autologin
-sudo pwnbox uninstall all
+xfconf-query -c xsettings -p /Xft/DPI -s 168
 ```
 
-Quy tắc uninstall:
+Đổi VNC password — chạy install, khi được hỏi *"Change it? [y/N]"* gõ `y`; hoặc ép reset:
 
-- Không bao giờ stop, disable hoặc purge SSH.
-- Không gỡ VMware Tools, XFCE, LightDM, `dbus-x11` hay các package nền dùng chung.
-- `uninstall vnc` luôn xóa VNC session/config do Pwnbox tạo.
-- Package `tigervnc-standalone-server` chỉ bị purge nếu file quản lý ghi nhận chính Pwnbox là bên đã cài package đó. Nếu TigerVNC đã có từ trước, package được giữ nguyên.
-- `uninstall autologin` chỉ xóa drop-in `/etc/lightdm/lightdm.conf.d/50-pwnbox-autologin.conf` do Pwnbox tạo.
-- `uninstall all` tương đương gỡ VNC artifact + autologin drop-in + command `/usr/local/bin/pwnbox`; SSH vẫn hoạt động.
+```bash
+sudo pwnbox install --reset-vnc-password
+pwnbox vnc restart      # server chỉ nạp password lúc khởi động
+```
+
+## SSH: tắt password auth (tùy chọn, nên làm sau khi key đã chạy)
+
+Luôn giữ một SSH session đang mở khi test. Kali:
+
+```bash
+printf 'PasswordAuthentication no\n' | sudo tee /etc/ssh/sshd_config.d/99-pwnbox.conf
+sudo sshd -t && sudo systemctl reload ssh
+```
+
+Windows (Admin): sửa `PasswordAuthentication no` trong `$env:ProgramData\ssh\sshd_config` rồi `Restart-Service sshd`. Termux: đặt `PasswordAuthentication no` trong `$PREFIX/etc/ssh/sshd_config`, `pkill -f '[s]shd'; sshd`.
+
+---
+
+# Uninstall
+
+## Kali
+
+```bash
+sudo pwnbox uninstall vnc          # xóa VNC session + config do pwnbox tạo
+sudo pwnbox uninstall autologin    # xóa LightDM autologin drop-in
+sudo pwnbox uninstall all          # cả hai + xóa /usr/local/bin/pwnbox
+```
+
+Quy tắc: **không bao giờ** đụng SSH; **không** gỡ VMware Tools/XFCE/LightDM/`dbus-x11`. `tigervnc-standalone-server` chỉ bị purge nếu pwnbox ghi nhận chính nó đã cài package đó (có sẵn từ trước thì giữ nguyên).
+
+## Windows
+
+```powershell
+# Gỡ cơ bản: xóa task + Mac key + revert WoL. Giữ OpenSSH để không tự khóa mình.
+.\setup-windows.ps1 -Uninstall -EthernetAdapter "<ETHERNET_NAME>" -MacPublicKey $MacPublicKey
+
+# Gỡ sạch mọi thứ script từng thêm (khỏi hỏi xác nhận):
+.\setup-windows.ps1 -Uninstall -EthernetAdapter "<ETHERNET_NAME>" -MacPublicKey $MacPublicKey `
+    -RestoreFastStartup -RemoveOpenSSH -Force
+```
+
+| Cờ | Tác dụng |
+|---|---|
+| (mặc định) | Xóa task `Wake Kali VM`, gỡ đúng dòng Mac key (giữ key khác), tắt Wake-on-Magic-Packet |
+| `-RestoreFastStartup` | Bật lại Fast Startup (`HiberbootEnabled = 1`) |
+| `-RemoveOpenSSH` | Stop/disable sshd + xóa firewall rule + gỡ OpenSSH capability |
+| `-Force` | Bỏ qua prompt xác nhận |
+
+Mặc định **giữ** OpenSSH, Tailscale và Sysinternals Autologon — gỡ thủ công nếu muốn.
+
+---
+
+# Troubleshooting nhanh
+
+| Triệu chứng | Kiểm tra |
+|---|---|
+| Mac không SSH được Android sau reboot | Mở Termux:Boot 1 lần; tắt battery optimization; `~/.termux/boot/10-pwnbox-relay` executable |
+| `wol` chạy nhưng PC không bật | Ethernet có dây; BIOS WoL + tắt ErP/Fast Startup; đúng MAC Ethernet; tắt Wi-Fi AP isolation |
+| Windows SSH lỗi | `Get-Service sshd`; dùng account password/public key, **không** phải Windows Hello PIN |
+| `kali_up` báo OK nhưng VMware không hiện | Windows đã auto-login? Task principal đúng user + `LogonType Interactive`? |
+| VNC `connection refused` | `ss -ltn \| grep 5901` trên Kali; tunnel Mac còn chạy?; `pwnbox vnc restart` |
+| VNC ăn password cũ | Có systemd `vncserver@1` giành `:1` → `sudo systemctl disable --now vncserver@1`; xác minh bằng `pgrep -af Xtigervnc` (xem `-PasswordFile`) |
 
 ## License
 
