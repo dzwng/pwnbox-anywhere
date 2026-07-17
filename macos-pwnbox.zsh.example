@@ -1,0 +1,77 @@
+# Copy this file to ~/.config/pwnbox/aliases.zsh, edit the two paths/MAC below,
+# then add: source ~/.config/pwnbox/aliases.zsh
+
+PWNBOX_PC_MAC='AA:BB:CC:DD:EE:FF'
+PWNBOX_VMRUN='C:\Program Files (x86)\VMware\VMware Workstation\vmrun.exe'
+PWNBOX_VMX='D:\Vms\HTB-Kali\kali-linux-2026.1-vmware-amd64.vmx'
+
+pc_up() {
+  ssh pwnbox-android "wol ${PWNBOX_PC_MAC}"
+}
+
+pc_down() {
+  ssh pwnbox-windows 'shutdown /s /t 0'
+}
+
+kali_up() {
+  ssh pwnbox-windows 'schtasks /run /tn "Wake Kali VM"'
+}
+
+_pwnbox_windows_ps() {
+  local encoded
+  encoded=$(printf '%s' "$1" | iconv -f UTF-8 -t UTF-16LE | base64 | tr -d '\n') || return
+  ssh pwnbox-windows \
+    "powershell.exe -NoProfile -NonInteractive -EncodedCommand ${encoded}"
+}
+
+kali_down() {
+  _pwnbox_windows_ps \
+    "& '${PWNBOX_VMRUN}' stop '${PWNBOX_VMX}' soft; Stop-Process -Name vmware -Force -ErrorAction SilentlyContinue"
+}
+
+_pwnbox_wait_for_ssh() {
+  local host="$1"
+  local timeout="${2:-180}"
+  local elapsed=0
+
+  printf 'Waiting for %s' "$host"
+  while ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$host" exit >/dev/null 2>&1; do
+    sleep 5
+    elapsed=$((elapsed + 5))
+    printf '.'
+    if (( elapsed >= timeout )); then
+      printf '\nTimed out waiting for %s after %ss.\n' "$host" "$timeout" >&2
+      return 1
+    fi
+  done
+  printf ' ready.\n'
+}
+
+pwnbox_up() {
+  pc_up || return
+  _pwnbox_wait_for_ssh pwnbox-windows 180 || return
+  # sshd can be ready a little before Windows Autologon finishes creating
+  # the interactive desktop required by the Scheduled Task.
+  sleep 20
+  kali_up || return
+  _pwnbox_wait_for_ssh pwnbox-kali 240
+}
+
+pwnbox_down() {
+  kali_down || return
+  pc_down
+}
+
+pwnbox_ssh() {
+  ssh pwnbox-kali
+}
+
+pwnbox_vnc() {
+  ssh pwnbox-kali 'pwnbox vnc start' || return
+  printf 'Connect the VNC viewer to 127.0.0.1:5901. Ctrl-C closes only the tunnel.\n'
+  ssh -N -L 5901:127.0.0.1:5901 pwnbox-kali
+}
+
+pwnbox_vnc_stop() {
+  ssh pwnbox-kali 'pwnbox vnc stop'
+}
