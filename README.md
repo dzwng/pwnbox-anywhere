@@ -82,9 +82,11 @@ cd pwnbox-anywhere
 bash setup-android-termux.sh
 ```
 
-Script cài `openssh` + `wol`, tạo `~/.termux/boot/10-pwnbox-relay`, chạy `termux-wake-lock`, đặt password tạm cho `ssh-copy-id` lần đầu, và khởi động `sshd` trên port `8022`.
+Script cài `openssh` + `wol`, tạo `~/.termux/boot/10-pwnbox-relay`, chạy `termux-wake-lock`, và khởi động `sshd` trên port `8022`. Lần đầu (chưa có SSH key) nó hỏi một password tạm cho `ssh-copy-id`.
 
 Ghi lại `whoami` làm `<TERMUX_USER>`. Reboot Android và xác nhận từ máy khác: `ssh -p 8022 <TERMUX_USER>@<ANDROID_TS_IP>`.
+
+> **Chạy lại về sau:** `git pull` rồi `bash setup-android-termux.sh` — script an toàn để re-run: đã có key thì **bỏ qua** bước hỏi password và **không** kill sshd (chạy được cả khi đang SSH vào từ xa). Thêm `--set-password` nếu muốn đổi password, `--restart-sshd` nếu thực sự cần restart (sẽ rớt phiên SSH hiện tại).
 
 ## 3. Windows
 
@@ -271,6 +273,23 @@ Windows (Admin): sửa `PasswordAuthentication no` trong `$env:ProgramData\ssh\s
 ---
 
 # Uninstall
+
+## Android
+
+```bash
+cd pwnbox-anywhere
+bash setup-android-termux.sh uninstall                       # xóa boot script + thả wake lock
+bash setup-android-termux.sh uninstall --stop-sshd           # kèm dừng sshd (rớt phiên SSH)
+bash setup-android-termux.sh uninstall --stop-sshd --remove-packages   # gỡ luôn openssh + wol
+```
+
+| Cờ | Tác dụng |
+|---|---|
+| (mặc định) | Xóa `~/.termux/boot/10-pwnbox-relay` (không auto-start sshd khi boot) + `termux-wake-unlock` |
+| `--stop-sshd` | Kill sshd đang chạy (rớt phiên SSH; nếu không, sshd sống tới khi reboot) |
+| `--remove-packages` | `pkg uninstall openssh wol` (mất khả năng SSH vào máy này) |
+
+Mặc định **giữ** openssh/wol, Tailscale và Termux password.
 
 ## Kali
 
