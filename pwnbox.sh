@@ -112,6 +112,9 @@ unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
 export XDG_CURRENT_DESKTOP=XFCE
 export XDG_SESSION_DESKTOP=xfce
+# Bridge the clipboard between the VNC viewer and this session so copy/paste
+# keeps working across vnc stop/start cycles.
+vncconfig -nowin &
 exec dbus-launch --exit-with-session startxfce4
 EOF
     chown "$TARGET_USER:$TARGET_GID" "$PWNBOX_CONFIG" "$VNC_STARTUP"
@@ -124,9 +127,19 @@ configure_vnc_password() {
     local password="${VNC_PASSWORD-}"
     local passwd_command
 
-    if [ -s "$VNC_PASSWORD_FILE" ] && [ "$reset_password" != "true" ]; then
-        log "Keeping the existing VNC password."
-        return
+    if [ -s "$VNC_PASSWORD_FILE" ] && [ "$reset_password" != "true" ] \
+        && [ -z "$password" ]; then
+        if [ -t 0 ]; then
+            local answer
+            read -rp "A VNC password already exists. Change it? [y/N]: " answer
+            case "$answer" in
+                [Yy]*) : ;;   # fall through and set a new password
+                *) log "Keeping the existing VNC password."; return ;;
+            esac
+        else
+            log "Keeping the existing VNC password."
+            return
+        fi
     fi
     if [ -z "$password" ]; then
         [ -t 0 ] || die "Set VNC_PASSWORD for a non-interactive install."
@@ -262,6 +275,19 @@ vnc_stop() {
     run_as_target "$server" -kill ":${DISPLAY_NUMBER}" >/dev/null 2>&1 \
         && log "VNC display :${DISPLAY_NUMBER} stopped." \
         || warn "VNC display :${DISPLAY_NUMBER} was not running."
+
+    # -kill returns before Xtigervnc has fully exited. Wait for the process to
+    # die, then clear any stale lock/socket/pid so an immediate restart can
+    # rebind :DISPLAY_NUMBER instead of hitting "already running" or a lock.
+    local waited=0
+    while pgrep -u "$TARGET_UID" -f "Xtigervnc.*:${DISPLAY_NUMBER}" >/dev/null 2>&1; do
+        [ "$waited" -ge 20 ] && break
+        sleep 0.5
+        waited=$((waited + 1))
+    done
+    rm -f "/tmp/.X${DISPLAY_NUMBER}-lock" \
+          "/tmp/.X11-unix/X${DISPLAY_NUMBER}" \
+          "$TARGET_HOME/.vnc/"*":${DISPLAY_NUMBER}.pid" 2>/dev/null || true
 }
 
 vnc_status() {
