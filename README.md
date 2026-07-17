@@ -330,7 +330,7 @@ Script hỏi VNC password 6-8 ký tự. TigerVNC chỉ dùng tối đa 8 ký t�
 
 Những gì được cài/cấu hình:
 
-- `openssh-server`, enable ở boot;
+- đảm bảo `openssh-server` có mặt và enable ở boot; SSH được xem là thành phần nền của Kali, không thuộc phạm vi uninstall của Pwnbox;
 - `tigervnc-standalone-server` và XFCE startup;
 - `dbus-x11`;
 - `open-vm-tools` + `open-vm-tools-desktop`;
@@ -816,11 +816,17 @@ Sau mỗi lần đổi NIC, mainboard, Windows user, Android hoặc Kali VM, c�
 ```bash
 sudo pwnbox uninstall vnc
 sudo pwnbox uninstall autologin
-sudo pwnbox uninstall ssh
 sudo pwnbox uninstall all
 ```
 
-`uninstall ssh` hoặc `all` có thể khóa đường truy cập từ xa. Chỉ làm khi đang có VMware console hoặc recovery path khác.
+Quy tắc uninstall:
+
+- Không bao giờ stop, disable hoặc purge SSH.
+- Không gỡ VMware Tools, XFCE, LightDM, `dbus-x11` hay các package nền dùng chung.
+- `uninstall vnc` luôn xóa VNC session/config do Pwnbox tạo.
+- Package `tigervnc-standalone-server` chỉ bị purge nếu file quản lý ghi nhận chính Pwnbox là bên đã cài package đó. Nếu TigerVNC đã có từ trước, package được giữ nguyên.
+- `uninstall autologin` chỉ xóa drop-in `/etc/lightdm/lightdm.conf.d/50-pwnbox-autologin.conf` do Pwnbox tạo.
+- `uninstall all` tương đương gỡ VNC artifact + autologin drop-in + command `/usr/local/bin/pwnbox`; SSH vẫn hoạt động.
 
 ## License
 

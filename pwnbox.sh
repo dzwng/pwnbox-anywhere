@@ -25,7 +25,7 @@ usage() {
     cat <<EOF
 Usage:
   sudo ./${PROGRAM} install [--enable-autologin] [--reset-vnc-password]
-  sudo ./${PROGRAM} uninstall <vnc|ssh|autologin|all> [--yes]
+  sudo ./${PROGRAM} uninstall <vnc|autologin|all> [--yes]
   ${PROGRAM} status
   ${PROGRAM} vnc <start|stop|restart|status>
 
@@ -66,6 +66,7 @@ init_user_paths() {
 
     PWNBOX_CONFIG_DIR="$TARGET_HOME/.config/pwnbox"
     PWNBOX_CONFIG="$PWNBOX_CONFIG_DIR/config"
+    MANAGED_PACKAGES_FILE="$PWNBOX_CONFIG_DIR/managed-packages"
     VNC_PASSWORD_FILE="$PWNBOX_CONFIG_DIR/passwd"
     VNC_STARTUP="$PWNBOX_CONFIG_DIR/xstartup"
 }
@@ -162,6 +163,11 @@ EOF
 
 install_packages() {
     local enable_autologin="$1"
+    PWNBOX_ADDED_TIGERVNC=false
+    if ! dpkg-query -W -f='${Status}' tigervnc-standalone-server 2>/dev/null \
+        | grep -q '^install ok installed$'; then
+        PWNBOX_ADDED_TIGERVNC=true
+    fi
     local packages=(
         openssh-server
         tigervnc-standalone-server
@@ -183,6 +189,14 @@ install_packages() {
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}"
 }
 
+record_managed_packages() {
+    if $PWNBOX_ADDED_TIGERVNC; then
+        printf 'tigervnc-standalone-server\n' > "$MANAGED_PACKAGES_FILE"
+        chown "$TARGET_USER:$TARGET_GID" "$MANAGED_PACKAGES_FILE"
+        chmod 0600 "$MANAGED_PACKAGES_FILE"
+    fi
+}
+
 install_command() {
     require_root
     init_user_paths
@@ -202,6 +216,7 @@ install_command() {
     systemctl enable --now ssh
     systemctl enable --now open-vm-tools 2>/dev/null || true
     write_vnc_config
+    record_managed_packages
     configure_vnc_password "$reset_password"
     $enable_autologin && configure_autologin
 
@@ -319,10 +334,20 @@ confirm_destructive() {
 }
 
 remove_vnc() {
+    local remove_package=false
+    if [ -f "$MANAGED_PACKAGES_FILE" ] \
+        && grep -qx 'tigervnc-standalone-server' "$MANAGED_PACKAGES_FILE"; then
+        remove_package=true
+    fi
     vnc_stop || true
     rm -rf "$PWNBOX_CONFIG_DIR"
-    apt-get remove -y --purge tigervnc-standalone-server
-    log "TigerVNC and its Pwnbox configuration were removed."
+    if $remove_package; then
+        apt-get remove -y --purge tigervnc-standalone-server
+        log "Removed TigerVNC because it was installed by Pwnbox."
+    else
+        log "TigerVNC package was kept because Pwnbox did not record installing it."
+    fi
+    log "Pwnbox VNC configuration was removed."
 }
 
 uninstall_command() {
@@ -333,39 +358,35 @@ uninstall_command() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --yes|-y) assume_yes=true ;;
-            vnc|ssh|autologin|all) targets+=("$1") ;;
+            vnc|autologin|all) targets+=("$1") ;;
             *) die "Unknown uninstall target: $1" ;;
         esac
         shift
     done
     [ "${#targets[@]}" -gt 0 ] \
-        || die "Choose what to remove: vnc, ssh, autologin, or all."
+        || die "Choose what to remove: vnc, autologin, or all."
     confirm_destructive \
-        "Remove ${targets[*]}? Removing SSH can lock you out of the VM." \
+        "Remove Pwnbox-managed components: ${targets[*]}?" \
         "$assume_yes"
 
-    local remove_vnc_flag=false remove_ssh=false remove_autologin=false target
+    local remove_vnc_flag=false remove_autologin=false target
     for target in "${targets[@]}"; do
         case "$target" in
             vnc) remove_vnc_flag=true ;;
-            ssh) remove_ssh=true ;;
             autologin) remove_autologin=true ;;
-            all) remove_vnc_flag=true; remove_ssh=true; remove_autologin=true ;;
+            all) remove_vnc_flag=true; remove_autologin=true ;;
         esac
     done
 
     $remove_vnc_flag && remove_vnc
-    if $remove_ssh; then
-        systemctl disable --now ssh 2>/dev/null || true
-        apt-get remove -y --purge openssh-server
-    fi
     if $remove_autologin; then
         rm -f "$AUTLOGIN_CONFIG"
         log "Pwnbox LightDM autologin configuration removed."
     fi
-    if $remove_vnc_flag && $remove_ssh && $remove_autologin; then
+    if $remove_vnc_flag && $remove_autologin; then
         rm -f "$INSTALL_PATH"
     fi
+    log "SSH, VMware Tools, XFCE, LightDM, and other base packages were left untouched."
     log "Uninstall complete."
 }
 
