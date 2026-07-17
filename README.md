@@ -153,8 +153,11 @@ ssh-copy-id -i ~/.ssh/pwnbox_kali.pub <KALI_USER>@<KALI_TS_IP>
 
 ```powershell
 $MacPublicKey = 'ssh-ed25519 AAAA... mac-to-windows'
-.\setup-windows.ps1 -VmxPath "<VMX_PATH>" -EthernetAdapter "<ETHERNET_NAME>" -MacPublicKey $MacPublicKey -DisableFastStartup
+
+.\setup-windows.ps1 -VmxPath "D:\Vms\HTB-Kali\kali-linux-2026.1-vmware-amd64.vmx" -EthernetAdapter "Ethernet" -MacPublicKey $MacPublicKey -DisableFastStartup
 ```
+
+Script cũng tự **bật khối `Match Group administrators`** trong `sshd_config` (kèm `sshd -t` validate) — nếu khối này bị comment thì key có cài vào `administrators_authorized_keys` cũng bị sshd bỏ qua và bắt nhập password.
 
 **`~/.ssh/config`** (rồi `chmod 600 ~/.ssh/config`):
 
@@ -330,6 +333,7 @@ Mặc định **giữ** OpenSSH, Tailscale và Sysinternals Autologon — gỡ t
 | Mac không SSH được Android sau reboot | Mở Termux:Boot 1 lần; tắt battery optimization; `~/.termux/boot/10-pwnbox-relay` executable |
 | `wol` chạy nhưng PC không bật | Ethernet có dây; BIOS WoL + tắt ErP/Fast Startup; đúng MAC Ethernet; tắt Wi-Fi AP isolation |
 | Windows SSH lỗi | `Get-Service sshd`; dùng account password/public key, **không** phải Windows Hello PIN |
+| Windows vẫn hỏi password dù đã cài key | Khối `Match Group administrators` trong `sshd_config` bị comment → bỏ comment (chạy lại `-MacPublicKey`) rồi `Restart-Service sshd`. Xem lý do: `Get-WinEvent -LogName OpenSSH/Operational` |
 | `kali_up` báo OK nhưng VMware không hiện | Windows đã auto-login? Task principal đúng user + `LogonType Interactive`? |
 | VNC `connection refused` | `ss -ltn \| grep 5901` trên Kali; tunnel Mac còn chạy?; `pwnbox vnc restart` |
 | VNC ăn password cũ | Có systemd `vncserver@1` giành `:1` → `sudo systemctl disable --now vncserver@1`; xác minh bằng `pgrep -af Xtigervnc` (xem `-PasswordFile`) |

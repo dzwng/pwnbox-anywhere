@@ -6,7 +6,8 @@ Configures (or removes) the Pwnbox workflow on a Windows 11 host.
 .DESCRIPTION
 Install mode (default):
 - Installs and enables Windows OpenSSH Server.
-- Optionally installs the Mac public key for the current administrator.
+- Optionally installs the Mac public key for the current administrator and
+  activates the "Match Group administrators" block so sshd actually reads it.
 - Enables Wake-on-Magic-Packet for the selected Ethernet adapter.
 - Optionally disables Windows Fast Startup.
 - Creates the interactive "Wake Kali VM" task used by macOS kali_up.
@@ -86,6 +87,50 @@ function Test-IsAdministrator {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Enable-AdminAuthorizedKeys {
+    # For an administrator account, Windows OpenSSH reads the key from
+    # administrators_authorized_keys ONLY when the "Match Group administrators"
+    # block is active in sshd_config. If that block is commented out or missing
+    # (some installs ship it commented), admins fall back to their empty
+    # per-user .ssh/authorized_keys and the installed key is silently ignored.
+    $sshdConfig = Join-Path $env:ProgramData "ssh\sshd_config"
+    if (-not (Test-Path -LiteralPath $sshdConfig)) {
+        Write-Warning "sshd_config not found at $sshdConfig; skipped the admin key block check."
+        return
+    }
+
+    $lines = Get-Content -LiteralPath $sshdConfig
+    if ($lines | Where-Object { $_ -match '^\s*Match\s+Group\s+administrators' }) {
+        return   # block already active
+    }
+
+    Write-Step "Enabling the administrators_authorized_keys block in sshd_config"
+
+    # Uncomment the standard commented-out block if it exists.
+    $lines = $lines | ForEach-Object {
+        if ($_ -match '^#\s*Match\s+Group\s+administrators\s*$') {
+            'Match Group administrators'
+        } elseif ($_ -match '^#\s*AuthorizedKeysFile\s+__PROGRAMDATA__/ssh/administrators_authorized_keys\s*$') {
+            '       AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys'
+        } else {
+            $_
+        }
+    }
+
+    # If there is still no active block, append a fresh one at the end (Match
+    # blocks are terminal, so it must come last).
+    if (-not ($lines | Where-Object { $_ -match '^\s*Match\s+Group\s+administrators' })) {
+        $lines += @('', 'Match Group administrators',
+                    '       AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys')
+    }
+
+    Set-Content -LiteralPath $sshdConfig -Value $lines -Encoding ascii
+    & "$env:WINDIR\System32\OpenSSH\sshd.exe" -t
+    if ($LASTEXITCODE -ne 0) {
+        throw "sshd_config failed validation after enabling the admin key block. Review $sshdConfig."
+    }
+}
+
 function Invoke-Install {
     if (-not (Test-Path -LiteralPath $VmxPath -PathType Leaf)) {
         throw "VMX file not found: $VmxPath"
@@ -135,6 +180,10 @@ function Invoke-Install {
 
         # Use well-known SIDs so this also works on non-English Windows installs.
         & icacls.exe $authorizedKeysPath /inheritance:r /grant "*S-1-5-32-544:F" /grant "*S-1-5-18:F" | Out-Null
+
+        # A key in administrators_authorized_keys is ignored unless the
+        # "Match Group administrators" block in sshd_config is active.
+        Enable-AdminAuthorizedKeys
         Restart-Service sshd
     }
 
