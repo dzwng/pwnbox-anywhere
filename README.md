@@ -214,11 +214,37 @@ pwnbox_up      # WoL → chờ Windows → task Kali → chờ Kali (tự chờ 
 pwnbox_ssh
 ```
 
-**Browser port-forward** (tool Kali chạy ở `127.0.0.1:8080`):
+**Browser port-forward** (tool Kali chạy ở `127.0.0.1:8080` — một service cụ thể trên localhost của Kali):
 
 ```bash
 ssh -N -L 8080:127.0.0.1:8080 pwnbox-kali      # rồi mở http://127.0.0.1:8080 trên Mac
 ```
+
+**Lướt web lab (SOCKS proxy)** — để duyệt IP lab (vd HTB `10.129.x.x`, chỉ Kali thấy qua `tun0`) bằng Firefox trên Mac:
+
+```bash
+proxy_up        # SOCKS5 127.0.0.1:1080 chạy nền; proxy_down để tắt
+```
+
+Trong Firefox cài **FoxyProxy** → SOCKS5, `127.0.0.1:1080`, bật **"Send DNS through SOCKS5"**; đặt pattern `10.10.*`, `10.129.*`, `*.htb` để chỉ proxy dải lab. Host `*.htb` map trong `/etc/hosts` của **Kali** (vì remote DNS). Khác `-L` (một đích cố định), SOCKS cho duyệt **mọi** IP/port Kali thấy mà không sửa lệnh.
+
+**Chuyển file** (dùng lại kết nối `pwnbox-kali`):
+
+```bash
+kali_pull '~/htb/box/loot.zip'       # kéo Kali → thư mục hiện tại Mac
+kali_push ./exploit.py               # đẩy Mac → home Kali
+kali_push ./wl.txt '~/htb/box/'      # đẩy vào thư mục cụ thể trên Kali
+```
+
+**Chọn kênh nào cho việc gì:**
+
+| Việc | Kênh |
+|---|---|
+| Tool CLI (nmap, gobuster, msfconsole...) | `pwnbox_ssh` — terminal thẳng |
+| Lướt web lab nhẹ | SOCKS (`proxy_up`) + Firefox Mac |
+| Web pentest có Burp | VNC vào Kali (Firefox+Burp wire sẵn) |
+| GUI phân tích dữ liệu (BloodHound xem đồ thị, mở `.pcap`) | Chạy **native trên Mac**, `kali_pull` file về |
+| GUI cần chạm mạng lab / cần màn hình Kali | VNC |
 
 **VNC** (server chỉ listen `127.0.0.1:5901`, bắt buộc qua tunnel):
 

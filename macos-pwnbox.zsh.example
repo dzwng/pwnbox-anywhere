@@ -75,3 +75,26 @@ pwnbox_vnc() {
 pwnbox_vnc_stop() {
   ssh pwnbox-kali 'pwnbox vnc stop'
 }
+
+# SOCKS proxy for browsing lab hosts (reachable via Kali's tun0) from the Mac
+# browser. Point FoxyProxy at SOCKS5 127.0.0.1:1080 with remote DNS enabled.
+proxy_up() {
+  ssh -fN -D 1080 pwnbox-kali \
+    && printf 'SOCKS5 127.0.0.1:1080 up. Point FoxyProxy here; proxy_down to stop.\n'
+}
+
+proxy_down() {
+  pkill -f 'ssh -fN -D 1080 pwnbox-kali' && printf 'SOCKS proxy stopped.\n'
+}
+
+# File transfer over the existing pwnbox-kali connection (reuses ControlMaster).
+# Quote remote paths with '~' so Kali expands them, not the Mac shell.
+kali_pull() {
+  [ -n "$1" ] || { printf 'Usage: kali_pull <kali-path> [mac-dest]\n' >&2; return 1; }
+  scp -r "pwnbox-kali:$1" "${2:-.}"
+}
+
+kali_push() {
+  [ -n "$1" ] || { printf 'Usage: kali_push <mac-path> [kali-dest]\n' >&2; return 1; }
+  scp -r "$1" "pwnbox-kali:${2:-}"
+}
