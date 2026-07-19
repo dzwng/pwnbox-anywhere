@@ -254,7 +254,7 @@ pwnbox_vnc          # start VNC + giữ tunnel ở foreground
 
 Mở TigerVNC/RealVNC Viewer → `127.0.0.1:5901`. `Ctrl-C` chỉ đóng tunnel, session VNC vẫn chạy để reconnect. Tắt hẳn: `pwnbox_vnc_stop`.
 
-> **Retina bị mờ?** VNC là ảnh bitmap cố định nên khi scale lên màn HiDPI sẽ nhòe. Đặt resolution khớp panel Mac + xem viewer ở 100% (xem [Config](#cấu-hình-vnc)).
+> **Retina bị mờ?** VNC là ảnh bitmap cố định nên khi scale lên màn HiDPI sẽ nhòe. Đặt resolution khớp panel Mac + xem viewer ở 100%.
 
 **Tắt** (luôn Kali trước, Windows sau — `kali_down` dùng `vmrun stop ... soft`, cần open-vm-tools):
 
@@ -265,28 +265,6 @@ pwnbox_down
 ---
 
 # Cấu hình
-
-## Cấu hình VNC
-
-Đổi resolution (đặt bằng panel vật lý của Mac để nét nhất, vd MacBook Air 13" = `2560x1664`):
-
-```bash
-sudo VNC_RESOLUTION=2560x1664 pwnbox install
-pwnbox vnc restart
-```
-
-Nếu chữ quá nhỏ ở resolution cao, tăng DPI trong phiên VNC (khoảng 144–168, đừng vọt cao khi resolution còn thấp kẻo phóng to quá):
-
-```bash
-xfconf-query -c xsettings -p /Xft/DPI -s 168
-```
-
-Đổi VNC password — chạy install, khi được hỏi *"Change it? [y/N]"* gõ `y`; hoặc ép reset:
-
-```bash
-sudo pwnbox install --reset-vnc-password
-pwnbox vnc restart      # server chỉ nạp password lúc khởi động
-```
 
 ## SSH: tắt password auth (tùy chọn, nên làm sau khi key đã chạy)
 
