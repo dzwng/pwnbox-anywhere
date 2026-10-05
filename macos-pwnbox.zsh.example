@@ -1,12 +1,19 @@
-# Copy this file to ~/.config/pwnbox/aliases.zsh, edit the two paths/MAC below,
+# Copy this file to ~/.config/pwnbox/aliases.zsh, edit the MAC and two paths below,
 # then add: source ~/.config/pwnbox/aliases.zsh
 
 PWNBOX_PC_MAC='AA:BB:CC:DD:EE:FF'
 PWNBOX_VMRUN='C:\Program Files (x86)\VMware\VMware Workstation\vmrun.exe'
 PWNBOX_VMX='D:\Vms\HTB-Kali\kali-linux-2026.1-vmware-amd64.vmx'
+# Leave empty for wakeonlan's default broadcast; set the relay LAN broadcast
+# (for example 192.168.1.255) if the default does not wake the PC.
+PWNBOX_WOL_BROADCAST=''
 
 pc_up() {
-  ssh pwnbox-android "wol ${PWNBOX_PC_MAC}"
+  if [ -n "${PWNBOX_WOL_BROADCAST}" ]; then
+    ssh pwnbox-relay "wakeonlan -i '${PWNBOX_WOL_BROADCAST}' '${PWNBOX_PC_MAC}'"
+  else
+    ssh pwnbox-relay "wakeonlan '${PWNBOX_PC_MAC}'"
+  fi
 }
 
 pc_down() {

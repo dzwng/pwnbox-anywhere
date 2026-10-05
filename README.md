@@ -1,12 +1,12 @@
 # Pwnbox Anywhere
 
-Dựng một Kali pwnbox chạy trong VMware trên PC Windows tại nhà, rồi điều khiển từ MacBook ở bất cứ đâu. Một điện thoại Android cũ chạy Tailscale + Termux 24/7 làm relay để Wake-on-LAN bật PC khi nó đang tắt.
+Dựng một Kali pwnbox chạy trong VMware trên PC Windows tại nhà, rồi điều khiển từ MacBook ở bất cứ đâu. ThinkPad X1 Carbon Gen 8 chạy **Debian 13 XFCE + Tailscale + OpenSSH** 24/7 làm relay để Wake-on-LAN bật PC khi nó đang tắt.
 
 Bốn thiết bị cùng một tailnet Tailscale. **Không** mở port trên router, **không** expose SSH/VNC ra Internet.
 
 ```text
                                      Tailscale
-MacBook ──SSH:8022──> Android relay ──magic packet/LAN──> Windows PC
+MacBook ──SSH:22──> Debian relay ──magic packet/LAN──> Windows PC
    │                                                        │
    ├──────────── SSH:22 ─────────────────────────────────> Windows ─ Scheduled Task ─> VMware + Kali
    │
@@ -16,7 +16,9 @@ MacBook ──SSH:8022──> Android relay ──magic packet/LAN──> Window
                          └─ tunnel tới TigerVNC localhost:5901
 ```
 
-Android chỉ cần để **bật** PC khi PC đang tắt. Khi Windows đã chạy, Mac SSH thẳng vào Windows để bật/tắt VM và shutdown.
+Debian relay chỉ cần để **bật** PC khi PC đang tắt. Khi Windows đã chạy, Mac SSH thẳng vào Windows để bật/tắt VM và shutdown. Relay tiếp tục chạy khi dùng `pwnbox_down`.
+
+Setup hiện tại: ThinkPad i5-10210U / RAM 8 GB / SSD 256 GB, hostname Linux `debian`, user `zwng`, tên máy trên Tailscale `pwnbox-relay`. Android/Termux là phương án cũ; script vẫn được giữ trong repo, xem [hướng dẫn Android](./android-relay.md).
 
 ## Lệnh hằng ngày (trên Mac)
 
@@ -34,7 +36,8 @@ Android chỉ cần để **bật** PC khi PC đang tắt. Khi Windows đã ch�
 
 | File | Chạy ở đâu | Mục đích |
 |---|---|---|
-| `setup-android-termux.sh` | Termux | OpenSSH + `wol`, Termux:Boot script, wake lock |
+| `debian-relay.md` | Debian + Mac | Runbook relay 24/7: power, Tailscale, SSH key, firewall, locale và WoL |
+| `setup-android-termux.sh` | Termux (phương án cũ) | OpenSSH + `wol`, Termux:Boot script, wake lock |
 | `setup-windows.ps1` | Windows PowerShell (Admin) | OpenSSH, SSH key, WoL, Scheduled Task VMware. Có chế độ `-Uninstall` |
 | `pwnbox.sh` | Kali | SSH, TigerVNC, VMware guest tools, auto-login. Có `uninstall` |
 | `macos-pwnbox.zsh.example` | Mac | Các function `pwnbox_up`, `pwnbox_ssh`, `pwnbox_vnc`, ... |
@@ -45,8 +48,8 @@ Thay placeholder bằng giá trị thật (bỏ dấu `<` `>`).
 
 | Placeholder | Ví dụ | Cách lấy |
 |---|---|---|
-| `<ANDROID_TS_IP>` | `100.x.y.z` | Tailscale app trên Android |
-| `<TERMUX_USER>` | `u0_a350` | `whoami` trong Termux |
+| `<RELAY_TS_IP>` | `100.x.y.z` | `tailscale ip -4` trên Debian; ưu tiên MagicDNS `pwnbox-relay` |
+| `<RELAY_USER>` | `zwng` | `whoami` trên Debian |
 | `<WINDOWS_TS_IP>` | `100.x.y.z` | Tailscale app trên Windows |
 | `<WINDOWS_USER>` | `hband` | `$env:USERNAME` trong PowerShell |
 | `<ETHERNET_NAME>` | `Ethernet` | `Get-NetAdapter -Physical` |
@@ -55,7 +58,7 @@ Thay placeholder bằng giá trị thật (bỏ dấu `<` `>`).
 | `<KALI_TS_IP>` | `100.x.y.z` | `tailscale ip -4` trên Kali |
 | `<KALI_USER>` | `kali` | User tạo lúc cài Kali |
 
-Giữ nguyên các tên mặc định để script/alias khỏi phải sửa: task Windows `Wake Kali VM`; SSH host alias `pwnbox-android` / `pwnbox-windows` / `pwnbox-kali`; VNC display `:1`, port `5901`.
+Giữ nguyên các tên mặc định để script/alias khỏi phải sửa: task Windows `Wake Kali VM`; SSH host alias `pwnbox-relay` / `pwnbox-windows` / `pwnbox-kali`; VNC display `:1`, port `5901`.
 
 ---
 
@@ -65,28 +68,26 @@ Giữ nguyên các tên mặc định để script/alias khỏi phải sửa: ta
 
 Đăng nhập cùng một tailnet trên cả 4 thiết bị ([tailscale.com/download](https://tailscale.com/download)).
 
-- **Android:** cài từ Play Store, đăng nhập, bật Always-on VPN nếu có, tắt battery optimization.
-- **Windows:** cài, đăng nhập, reboot và xác nhận tự kết nối. Ghi lại `<WINDOWS_TS_IP>`.
+- **Debian relay:** cài Tailscale Linux, đăng nhập và đặt tên máy `pwnbox-relay`; xem [runbook Debian](./debian-relay.md).
+- **Windows:** cài, đăng nhập, bật **Run unattended**, reboot và xác nhận tự kết nối. Ghi lại `<WINDOWS_TS_IP>`.
 - **Kali / Mac:** `curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up` (Kali) hoặc app (Mac).
 
 Repo dùng OpenSSH bình thường, không phụ thuộc Tailscale SSH.
 
-## 2. Android relay (Termux)
+Tắt **device key expiry** cho Debian và Windows để tránh phải re-authenticate khi đang dùng từ xa. Kali VM cố định dùng như remote pwnbox cũng có thể tắt; MacBook/iPhone giữ expiry bật. Đây là thời hạn key của thiết bị đã tham gia tailnet, khác với auth key dùng để enroll. Xem [giải thích và thao tác](./debian-relay.md#3-device-key-expiry).
 
-Cài **Termux** và **Termux:Boot** từ **cùng một nguồn** F-Droid hoặc GitHub (không trộn nguồn khác signing key; bản Play Store cũ không dùng được). Mở mỗi app một lần, tắt battery optimization, bật auto-start.
+## 2. Debian relay (ThinkPad 24/7)
+
+Theo [debian-relay.md](./debian-relay.md) để kiểm tra sleep/lid/TLP sau reboot, cài Tailscale, test SSH key rồi harden SSH và test WoL. Trên Debian:
 
 ```bash
-pkg update && pkg install -y git
-git clone https://github.com/dzwng/pwnbox-anywhere.git
-cd pwnbox-anywhere
-bash setup-android-termux.sh
+sudo apt update
+sudo apt install -y openssh-server wakeonlan
+sudo systemctl enable --now ssh
+wakeonlan <PC_MAC>
 ```
 
-Script cài `openssh` + `wol`, tạo `~/.termux/boot/10-pwnbox-relay`, chạy `termux-wake-lock`, và khởi động `sshd` trên port `8022`. Lần đầu (chưa có SSH key) nó hỏi một password tạm cho `ssh-copy-id`.
-
-Ghi lại `whoami` làm `<TERMUX_USER>`. Reboot Android và xác nhận từ máy khác: `ssh -p 8022 <TERMUX_USER>@<ANDROID_TS_IP>`.
-
-> **Chạy lại về sau:** `git pull` rồi `bash setup-android-termux.sh` — script an toàn để re-run: đã có key thì **bỏ qua** bước hỏi password và **không** kill sshd (chạy được cả khi đang SSH vào từ xa). Thêm `--set-password` nếu muốn đổi password, `--restart-sshd` nếu thực sự cần restart (sẽ rớt phiên SSH hiện tại).
+Relay phải cùng LAN/broadcast domain với card Ethernet của PC Windows. Không cần subnet router, exit node hay port forwarding để làm relay: Mac gửi lệnh SSH qua Tailscale, Debian phát magic packet trong LAN.
 
 ## 3. Windows
 
@@ -137,15 +138,16 @@ Reboot rồi xác nhận: `pwnbox status`, Kali vào thẳng XFCE, Tailscale + S
 
 ```bash
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
-ssh-keygen -t ed25519 -a 100 -f ~/.ssh/pwnbox_android -C 'mac-to-android'
+ssh-keygen -t ed25519 -a 100 -f ~/.ssh/pwnbox_relay   -C 'mac-to-pwnbox-relay'
 ssh-keygen -t ed25519 -a 100 -f ~/.ssh/pwnbox_windows -C 'mac-to-windows'
 ssh-keygen -t ed25519 -a 100 -f ~/.ssh/pwnbox_kali    -C 'mac-to-kali'
 ```
 
-**Cài key vào Android & Kali:**
+**Cài key vào Debian & Kali:**
 
 ```bash
-ssh-copy-id -i ~/.ssh/pwnbox_android.pub -p 8022 <TERMUX_USER>@<ANDROID_TS_IP>
+cat ~/.ssh/pwnbox_relay.pub | ssh <RELAY_USER>@pwnbox-relay \
+  'umask 077; mkdir -p ~/.ssh; cat >> ~/.ssh/authorized_keys'
 ssh-copy-id -i ~/.ssh/pwnbox_kali.pub <KALI_USER>@<KALI_TS_IP>
 ```
 
@@ -162,11 +164,10 @@ Script cũng tự **bật khối `Match Group administrators`** trong `sshd_conf
 **`~/.ssh/config`** (rồi `chmod 600 ~/.ssh/config`):
 
 ```sshconfig
-Host pwnbox-android
-    HostName <ANDROID_TS_IP>
-    User <TERMUX_USER>
-    Port 8022
-    IdentityFile ~/.ssh/pwnbox_android
+Host pwnbox-relay
+    HostName pwnbox-relay
+    User <RELAY_USER>
+    IdentityFile ~/.ssh/pwnbox_relay
     IdentitiesOnly yes
     ServerAliveInterval 30
     ServerAliveCountMax 3
@@ -191,7 +192,9 @@ Host pwnbox-kali
     ControlPath ~/.ssh/cm-%C
 ```
 
-`ServerAliveInterval/CountMax` giữ kết nối khỏi rớt khi mạng chập chờn. `ControlMaster/Persist/Path` (chỉ Kali — máy hay mở/đóng SSH liên tục) tái dùng một kết nối master để lần sau vào gần như tức thì. Test: `ssh pwnbox-android whoami`, `ssh pwnbox-windows whoami`, `ssh pwnbox-kali whoami` — cả ba không hỏi password.
+`ServerAliveInterval/CountMax` giữ kết nối khỏi rớt khi mạng chập chờn. `ControlMaster/Persist/Path` (chỉ Kali — máy hay mở/đóng SSH liên tục) tái dùng một kết nối master để lần sau vào gần như tức thì. Test: `ssh pwnbox-relay whoami`, `ssh pwnbox-windows whoami`, `ssh pwnbox-kali whoami` — cả ba dùng key thay cho account password (key có passphrase có thể hỏi passphrase).
+
+Nếu MagicDNS chưa resolve, thay `HostName pwnbox-relay` bằng `<RELAY_TS_IP>`. User hiện tại là `zwng`; Linux hostname vẫn có thể là `debian`.
 
 **Aliases:**
 
@@ -199,9 +202,12 @@ Host pwnbox-kali
 mkdir -p ~/.config/pwnbox
 cp macos-pwnbox.zsh.example ~/.config/pwnbox/aliases.zsh
 # sửa 3 dòng đầu: PWNBOX_PC_MAC, PWNBOX_VMRUN, PWNBOX_VMX
+# nếu cần: PWNBOX_WOL_BROADCAST = broadcast của LAN relay, xem debian-relay.md
 echo 'source ~/.config/pwnbox/aliases.zsh' >> ~/.zshrc
 source ~/.zshrc
 ```
+
+**Đang chuyển từ Android:** thêm SSH host/key `pwnbox-relay`, test `ssh pwnbox-relay hostname`, rồi cập nhật bản `~/.config/pwnbox/aliases.zsh` đang dùng (chỉ `git pull` không cập nhật bản đã copy). `pc_up` mới chạy `wakeonlan` qua Debian; giữ MAC/path thực tế của bạn. Test `pc_up` và `pwnbox_up` trước khi gỡ relay Android.
 
 ---
 
@@ -275,13 +281,13 @@ printf 'PasswordAuthentication no\n' | sudo tee /etc/ssh/sshd_config.d/99-pwnbox
 sudo sshd -t && sudo systemctl reload ssh
 ```
 
-Windows (Admin): sửa `PasswordAuthentication no` trong `$env:ProgramData\ssh\sshd_config` rồi `Restart-Service sshd`. Termux: đặt `PasswordAuthentication no` trong `$PREFIX/etc/ssh/sshd_config`, `pkill -f '[s]shd'; sshd`.
+Windows (Admin): sửa `PasswordAuthentication no` trong `$env:ProgramData\ssh\sshd_config` rồi `Restart-Service sshd`. Debian relay: xem [harden SSH và firewall](./debian-relay.md#5-harden-ssh-sau-khi-key-hoạt-động).
 
 ---
 
 # Uninstall
 
-## Android
+## Android (relay cũ)
 
 ```bash
 cd pwnbox-anywhere
@@ -334,8 +340,9 @@ Mặc định **giữ** OpenSSH, Tailscale và Sysinternals Autologon — gỡ t
 
 | Triệu chứng | Kiểm tra |
 |---|---|
-| Mac không SSH được Android sau reboot | Mở Termux:Boot 1 lần; tắt battery optimization; `~/.termux/boot/10-pwnbox-relay` executable |
-| `wol` chạy nhưng PC không bật | Ethernet có dây; BIOS WoL + tắt ErP/Fast Startup; đúng MAC Ethernet; tắt Wi-Fi AP isolation |
+| Mac không SSH được Debian sau reboot/gập nắp | `systemctl is-active ssh tailscaled`; sleep target masked; logind/XFCE lid = ignore/Do nothing; Wi-Fi vẫn kết nối |
+| `LC_CTYPE: cannot change locale (UTF-8)` | SSH đã kết nối; Mac gửi locale Debian không có. Xem [cách sửa locale](./debian-relay.md#8-cảnh-báo-locale-khi-ssh-từ-mac) |
+| `wakeonlan` chạy nhưng PC không bật | Ethernet có dây; BIOS WoL + tắt ErP/Fast Startup; đúng MAC Ethernet; cùng broadcast domain; thử `PWNBOX_WOL_BROADCAST`; tắt Wi-Fi AP isolation |
 | Windows SSH lỗi | `Get-Service sshd`; dùng account password/public key, **không** phải Windows Hello PIN |
 | Windows vẫn hỏi password dù đã cài key | Khối `Match Group administrators` trong `sshd_config` bị comment → bỏ comment (chạy lại `-MacPublicKey`) rồi `Restart-Service sshd`. Xem lý do: `Get-WinEvent -LogName OpenSSH/Operational` |
 | `kali_up` báo OK nhưng VMware không hiện | Windows đã auto-login? Task principal đúng user + `LogonType Interactive`? |

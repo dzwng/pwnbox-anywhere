@@ -1,10 +1,10 @@
 # Windows Autologon và Scheduled Task VMware
 
-Runbook đầy đủ đã được hợp nhất vào [README.md](./README.md), phần **Windows 11: BIOS, WoL, VMware, SSH và auto-logon**.
+Runbook đầy đủ đã được hợp nhất vào [README.md](./README.md#3-windows), phần **Windows**. Relay 24/7 được hướng dẫn trong [debian-relay.md](./debian-relay.md).
 
 Flow được giữ lại là flow đã hoạt động ổn trước đây:
 
-1. Android gửi Wake-on-LAN để bật PC.
+1. Mac SSH vào Debian relay `pwnbox-relay`; Debian gửi Wake-on-LAN để bật PC.
 2. Sysinternals Autologon đưa Windows vào interactive desktop.
 3. Mac chạy `kali_up` qua Windows SSH.
 4. `kali_up` gọi Scheduled Task `Wake Kali VM`.
