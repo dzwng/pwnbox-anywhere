@@ -1,0 +1,12 @@
+# Local settings, runtime state and secrets
+config/*.conf
+config/*.local
+*.key
+*.pem
+*.private
+*.pub
+.env
+.env.*
+!.env.example
+.local/
+__pycache__/

@@ -1,0 +1,29 @@
+# Merge into ~/.ssh/config. Replace hostnames, users and IPs.
+Host pwnbox-relay
+    HostName pwnbox-relay
+    User your_debian_user
+    IdentityFile ~/.ssh/pwnbox_relay
+    IdentitiesOnly yes
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+
+# Direct Tailscale endpoints: replace HostName with each OS node name or 100.x IP.
+Host kali pwnbox-kali
+    HostName pwnbox-kali
+    User your_kali_user
+    HostKeyAlias pwnbox-interactive-kali
+    IdentityFile ~/.ssh/pwnbox_kali
+    IdentitiesOnly yes
+    ProxyJump none
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+
+Host windows pwnbox-windows
+    HostName your_windows_tailnet_name
+    User your_windows_user
+    HostKeyAlias pwnbox-interactive-windows
+    IdentityFile ~/.ssh/pwnbox_windows
+    IdentitiesOnly yes
+    ProxyJump none
+    ServerAliveInterval 30
+    ServerAliveCountMax 3

@@ -1,0 +1,31 @@
+# Copy to ~/.config/pwnbox/pwnbox.conf on the ThinkPad, chmod 600.
+# Literal KEY=value only: no quotes, expansions, inline comments or shell code.
+# 192.0.2.0/24 is a documentation network; replace with your actual LAN values.
+DESKTOP_MAC=AA:BB:CC:DD:EE:FF
+# Controller automation uses LAN; Mac interactive endpoints use Tailscale separately.
+WINDOWS_HOST=192.0.2.20
+KALI_HOST=192.0.2.20
+WINDOWS_USER=your_windows_user
+KALI_USER=your_kali_user
+WINDOWS_SSH_PORT=22
+KALI_SSH_PORT=22
+WINDOWS_BOOT_ID=0000
+KALI_BOOT_ID=0002
+KALI_WINDOWS_BCD_GUID={00000000-0000-0000-0000-000000000000}
+WINDOWS_IDENTITY_FILE=~/.ssh/pwnbox_control_windows
+KALI_IDENTITY_FILE=~/.ssh/pwnbox_control_kali
+KNOWN_HOSTS_FILE=~/.ssh/pwnbox_control_known_hosts
+WOL_BROADCAST=192.0.2.255
+WOL_PORT=9
+# A LAN gateway known to answer ping. Required to infer OFF after shutdown.
+LAN_HEALTH_HOST=192.0.2.1
+CONNECT_TIMEOUT=3
+PROBE_TIMEOUT=8
+POLL_INTERVAL=3
+WAKE_TIMEOUT=180
+BOOT_TIMEOUT=240
+SHUTDOWN_TIMEOUT=120
+WOL_ATTEMPTS=3
+WOL_RETRY_INTERVAL=20
+OFF_SAMPLES=3
+OFF_CACHE_TTL=300

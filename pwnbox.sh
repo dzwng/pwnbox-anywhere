@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Configure SSH and on-demand TigerVNC on a clean Kali VMware guest.
+# Optional SSH and on-demand TigerVNC helper for Kali (bare metal by default).
 
 set -Eeuo pipefail
 
 PROGRAM="${0##*/}"
-INSTALL_PATH="/usr/local/bin/pwnbox"
+INSTALL_PATH="/usr/local/bin/pwnbox-kali"
 DISPLAY_NUMBER=1
 VNC_PORT=$((5900 + DISPLAY_NUMBER))
 DEFAULT_RESOLUTION="1920x1080"
@@ -24,7 +24,7 @@ section() { printf "\n${CYAN}--- %s ---${NC}\n" "$*"; }
 usage() {
     cat <<EOF
 Usage:
-  sudo ./${PROGRAM} install [--enable-autologin] [--reset-vnc-password]
+  sudo ./${PROGRAM} install [--enable-autologin] [--reset-vnc-password] [--vmware-tools]
   sudo ./${PROGRAM} uninstall <vnc|autologin|all> [--yes]
   ${PROGRAM} status
   ${PROGRAM} vnc <start|stop|restart|status>
@@ -176,6 +176,7 @@ EOF
 
 install_packages() {
     local enable_autologin="$1"
+    local vmware_tools="$2"
     PWNBOX_ADDED_TIGERVNC=false
     if ! dpkg-query -W -f='${Status}' tigervnc-standalone-server 2>/dev/null \
         | grep -q '^install ok installed$'; then
@@ -185,9 +186,10 @@ install_packages() {
         openssh-server
         tigervnc-standalone-server
         dbus-x11
-        open-vm-tools
-        open-vm-tools-desktop
     )
+    if [ "$vmware_tools" = "true" ]; then
+        packages+=(open-vm-tools open-vm-tools-desktop)
+    fi
     if ! command -v startxfce4 >/dev/null 2>&1; then
         packages+=(xfce4)
     fi
@@ -213,21 +215,22 @@ record_managed_packages() {
 install_command() {
     require_root
     init_user_paths
-    local reset_password=false enable_autologin=false
+    local reset_password=false enable_autologin=false vmware_tools=false
 
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --reset-vnc-password) reset_password=true ;;
             --enable-autologin) enable_autologin=true ;;
+            --vmware-tools) vmware_tools=true ;;
             *) die "Unknown install option: $1" ;;
         esac
         shift
     done
 
     section "Install"
-    install_packages "$enable_autologin"
+    install_packages "$enable_autologin" "$vmware_tools"
     systemctl enable --now ssh
-    systemctl enable --now open-vm-tools 2>/dev/null || true
+    if $vmware_tools; then systemctl enable --now open-vm-tools; fi
     write_vnc_config
     record_managed_packages
     configure_vnc_password "$reset_password"
@@ -238,11 +241,11 @@ install_command() {
     fi
 
     log "SSH and on-demand TigerVNC are ready."
-    printf '\nSSH:      ssh %s@<kali-tailscale-ip>\n' "$TARGET_USER"
-    printf 'VNC:      pwnbox vnc start\n'
-    printf 'VNC tunnel from Mac: ssh -N -L %s:127.0.0.1:%s pwnbox-kali\n' \
+    printf '\nSSH:      ssh %s@<kali-tailscale-name-or-ip>\n' "$TARGET_USER"
+    printf 'VNC:      pwnbox-kali vnc start\n'
+    printf 'VNC tunnel from Mac: ssh -N -L 127.0.0.1:%s:127.0.0.1:%s pwnbox-kali\n' \
         "$VNC_PORT" "$VNC_PORT"
-    $enable_autologin && printf 'Autologin will apply after the next reboot.\n'
+    if $enable_autologin; then printf 'Autologin will apply after the next reboot.\n'; fi
 }
 
 vnc_start() {
@@ -252,18 +255,16 @@ vnc_start() {
     [ -s "$VNC_PASSWORD_FILE" ] || die "VNC password is missing. Run: sudo $PROGRAM install"
     [ -x "$VNC_STARTUP" ] || die "VNC startup file is missing. Run: sudo $PROGRAM install"
 
-    if run_as_target "$server" -list 2>/dev/null \
-        | grep -qE "(^|[[:space:]]):${DISPLAY_NUMBER}([[:space:]]|$)"; then
-        log "VNC display :${DISPLAY_NUMBER} is already running."
-        return
-    fi
+    # Let TigerVNC reuse its own live session. The -list table differs between
+    # releases (display "1" versus ":1"); parsing it caused reconnects to fail.
     run_as_target "$server" ":${DISPLAY_NUMBER}" \
+        -useold \
         -geometry "$resolution" \
         -depth 24 \
         -localhost yes \
         -PasswordFile "$VNC_PASSWORD_FILE" \
         -xstartup "$VNC_STARTUP"
-    log "VNC started on 127.0.0.1:${VNC_PORT} (${resolution})."
+    log "VNC display :${DISPLAY_NUMBER} is ready on localhost:${VNC_PORT}."
 }
 
 vnc_stop() {
@@ -277,17 +278,18 @@ vnc_stop() {
         || warn "VNC display :${DISPLAY_NUMBER} was not running."
 
     # -kill returns before Xtigervnc has fully exited. Wait for the process to
-    # die, then clear any stale lock/socket/pid so an immediate restart can
-    # rebind :DISPLAY_NUMBER instead of hitting "already running" or a lock.
+    # die before an immediate restart. Never remove another user's X locks.
     local waited=0
-    while pgrep -u "$TARGET_UID" -f "Xtigervnc.*:${DISPLAY_NUMBER}" >/dev/null 2>&1; do
-        [ "$waited" -ge 20 ] && break
+    while pgrep -u "$TARGET_UID" -f "Xtigervnc.*:${DISPLAY_NUMBER}([[:space:]]|$)" >/dev/null 2>&1; do
+        if [ "$waited" -ge 20 ]; then
+            warn "VNC is still running; keeping locks and refusing restart."
+            return 1
+        fi
         sleep 0.5
         waited=$((waited + 1))
     done
-    rm -f "/tmp/.X${DISPLAY_NUMBER}-lock" \
-          "/tmp/.X11-unix/X${DISPLAY_NUMBER}" \
-          "$TARGET_HOME/.vnc/"*":${DISPLAY_NUMBER}.pid" 2>/dev/null || true
+    # Global X locks may belong to another user's server. Let TigerVNC manage them.
+    rm -f "$TARGET_HOME/.vnc/"*":${DISPLAY_NUMBER}.pid" 2>/dev/null || true
 }
 
 vnc_status() {
@@ -344,7 +346,7 @@ status_command() {
     else
         printf 'Autologin:  not managed by pwnbox\n'
     fi
-    if pgrep -u "$TARGET_UID" -f "Xtigervnc.*:${DISPLAY_NUMBER}" >/dev/null 2>&1; then
+    if pgrep -u "$TARGET_UID" -f "Xtigervnc.*:${DISPLAY_NUMBER}([[:space:]]|$)" >/dev/null 2>&1; then
         printf 'VNC:        running on localhost:%s\n' "$VNC_PORT"
     else
         printf 'VNC:        stopped (on demand)\n'
@@ -365,8 +367,9 @@ remove_vnc() {
         && grep -qx 'tigervnc-standalone-server' "$MANAGED_PACKAGES_FILE"; then
         remove_package=true
     fi
-    vnc_stop || true
-    rm -rf "$PWNBOX_CONFIG_DIR"
+    vnc_stop || die 'VNC did not stop; keeping its configuration.'
+    rm -f "$PWNBOX_CONFIG" "$MANAGED_PACKAGES_FILE" "$VNC_PASSWORD_FILE" "$VNC_STARTUP"
+    rmdir "$PWNBOX_CONFIG_DIR" 2>/dev/null || true
     if $remove_package; then
         apt-get remove -y --purge tigervnc-standalone-server
         log "Removed TigerVNC because it was installed by Pwnbox."
