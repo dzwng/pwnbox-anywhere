@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Run on the Debian controller. The Mac wrapper delegates control commands here.
+set -Eeuo pipefail
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+for module in common config detect wol windows kali; do
+    source "$ROOT/lib/$module.sh"
+done
+
+usage() {
+    cat <<'EOF'
+Usage: pwnbox [--config FILE] status|wake|windows|kali|off|doctor
+       pwnbox help
+Control runs on the ThinkPad. Use the Mac wrapper for direct interactive SSH.
+Exit codes: 0 success, 2 config/usage, 3 unknown/unreachable, 4 timeout,
+            5 remote action failed, 6 another operation is running.
+EOF
+}
+
+if [[ ${1-} == --config ]]; then
+    [[ $# -ge 2 ]] || fail 2 'Missing config filename.'
+    PWNBOX_CONFIG=$2; shift 2
+fi
+COMMAND=${1:-help}
+[[ $# -le 1 ]] || fail 2 'Too many arguments.'
+case "$COMMAND" in help|-h|--help) usage; exit 0;; esac
+case "$COMMAND" in status|wake|windows|kali|off|doctor) :;; *) fail 2 "Unknown command: $COMMAND";; esac
+load_config
+init_state
+if [[ $COMMAND == status ]]; then
+    detect_state
+    printf '%s\n' "$STATE"
+    [[ $STATE != UNKNOWN ]] || exit 3
+    exit 0
+fi
+if [[ $COMMAND == doctor ]]; then
+    printf 'Config: %s\n' "$PWNBOX_CONFIG"
+    printf 'Windows: %s@%s:%s (host key alias pwnbox-control-windows)\n' "$WINDOWS_USER" "$WINDOWS_HOST" "$WINDOWS_SSH_PORT"
+    printf 'Kali: %s@%s:%s (host key alias pwnbox-control-kali)\n' "$KALI_USER" "$KALI_HOST" "$KALI_SSH_PORT"
+    detect_state
+    printf 'Desktop: %s\n' "$STATE"
+    if [[ $STATE == UNKNOWN ]]; then
+        log 'Run the SSH tests in docs/ssh.md; inspect state-dir/probe-*.err.'
+        exit 3
+    fi
+    exit 0
+fi
+command -v flock >/dev/null || fail 2 'Install util-linux (flock).'
+exec 9>"$STATE_DIR/operation.lock"
+flock -n 9 || fail 6 'Another pwnbox operation is running.'
+trap 'operation_exit "$?"' EXIT
+detect_state
+log "Desktop: $STATE"
+if [[ $STATE == TRANSITIONING ]]; then
+    log 'Waiting for the previous transition to settle...'
+    wait_ready ANY "$BOOT_TIMEOUT"
+fi
+case "$COMMAND" in
+    wake)
+        if [[ $STATE == WINDOWS || $STATE == KALI ]]; then log "$STATE already ready."; exit 0; fi
+        begin_transition WAKE "$WAKE_TIMEOUT"
+        send_wol
+        wait_ready ANY "$WAKE_TIMEOUT" true
+        ;;
+    windows|kali)
+        TARGET=${COMMAND^^}
+        if [[ $STATE == "$TARGET" ]]; then log "$TARGET already ready."; exit 0; fi
+        if [[ $STATE != WINDOWS && $STATE != KALI ]]; then
+            log 'OS unavailable; sending WoL and verifying the OS before any action.'
+            begin_transition WAKE "$WAKE_TIMEOUT"
+            send_wol
+            wait_ready ANY "$WAKE_TIMEOUT" true
+        fi
+        if [[ $STATE != "$TARGET" ]]; then
+            begin_transition "$TARGET" "$BOOT_TIMEOUT"
+            if [[ $STATE == WINDOWS ]]; then windows_kali; else kali_windows; fi
+            wait_ready "$TARGET" "$BOOT_TIMEOUT"
+        fi
+        log "$TARGET ready: $(host_for "$TARGET")"
+        ;;
+    off)
+        if [[ $STATE == OFF ]]; then log 'Already OFF (inferred from recent shutdown).'; exit 0; fi
+        [[ $STATE == WINDOWS || $STATE == KALI ]] || fail 3 'Cannot identify OS; refusing shutdown.'
+        lan_healthy || fail 3 'LAN_HEALTH_HOST must answer ping before shutdown can be verified.'
+        begin_transition OFF "$SHUTDOWN_TIMEOUT"
+        if [[ $STATE == WINDOWS ]]; then windows_off; else kali_off; fi
+        wait_off
+        ;;
+esac

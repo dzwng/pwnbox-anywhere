@@ -1,107 +1,65 @@
-# Copy this file to ~/.config/pwnbox/aliases.zsh, edit the MAC and two paths below,
-# then add: source ~/.config/pwnbox/aliases.zsh
-
-PWNBOX_PC_MAC='AA:BB:CC:DD:EE:FF'
-PWNBOX_VMRUN='C:\Program Files (x86)\VMware\VMware Workstation\vmrun.exe'
-PWNBOX_VMX='D:\Vms\HTB-Kali\kali-linux-2026.1-vmware-amd64.vmx'
-# Leave empty for wakeonlan's default broadcast; set the relay LAN broadcast
-# (for example 192.168.1.255) if the default does not wake the PC.
-PWNBOX_WOL_BROADCAST=''
-
-pc_up() {
-  if [ -n "${PWNBOX_WOL_BROADCAST}" ]; then
-    ssh pwnbox-relay "wakeonlan -i '${PWNBOX_WOL_BROADCAST}' '${PWNBOX_PC_MAC}'"
-  else
-    ssh pwnbox-relay "wakeonlan '${PWNBOX_PC_MAC}'"
-  fi
+# Copy to ~/.config/pwnbox/aliases.zsh, then source it from ~/.zshrc.
+# Hostnames/interactive keys live in ~/.ssh/config (config/ssh-macos.conf.example).
+# Clear VMware-only helpers left in a shell that previously sourced v1.
+unset PWNBOX_PC_MAC PWNBOX_VMRUN PWNBOX_VMX
+if [ -n "${ZSH_VERSION:-}" ]; then
+  unfunction _pwnbox_windows_ps _pwnbox_wait_for_ssh 2>/dev/null || true
+fi
+PWNBOX_RELAY_HOST=${PWNBOX_RELAY_HOST:-pwnbox-relay}
+PWNBOX_KALI_HOST=${PWNBOX_KALI_HOST:-kali}
+PWNBOX_SOCKS_SOCKET=${PWNBOX_SOCKS_SOCKET:-$HOME/.ssh/pwnbox-socks.sock}
+PWNBOX_VNC_SOCKET=${PWNBOX_VNC_SOCKET:-$HOME/.ssh/pwnbox-vnc.sock}
+pwnbox() {
+  case "${1:-help}" in
+    status|wake|windows|kali|off|doctor)
+      [ "$#" -eq 1 ] || { printf 'Usage: pwnbox <command>\n' >&2; return 2; }
+      ssh -T -o BatchMode=yes -o ConnectTimeout=5 "$PWNBOX_RELAY_HOST" "/usr/local/bin/pwnbox $1"
+      ;;
+    ssh) shift; ssh "$PWNBOX_KALI_HOST" "$@";;
+    help|-h|--help) printf 'pwnbox status|wake|windows|kali|off|doctor|ssh\n';;
+    *) printf 'Unknown command: %s\n' "$1" >&2; return 2;;
+  esac
 }
-
-pc_down() {
-  ssh pwnbox-windows 'shutdown /s /t 0'
-}
-
-kali_up() {
-  ssh pwnbox-windows 'schtasks /run /tn "Wake Kali VM"'
-}
-
-_pwnbox_windows_ps() {
-  local encoded
-  encoded=$(printf '%s' "$1" | iconv -f UTF-8 -t UTF-16LE | base64 | tr -d '\n') || return
-  ssh pwnbox-windows \
-    "powershell.exe -NoProfile -NonInteractive -EncodedCommand ${encoded}"
-}
-
-kali_down() {
-  _pwnbox_windows_ps \
-    "& '${PWNBOX_VMRUN}' stop '${PWNBOX_VMX}' soft; Stop-Process -Name vmware -Force -ErrorAction SilentlyContinue"
-}
-
-_pwnbox_wait_for_ssh() {
-  local host="$1"
-  local timeout="${2:-180}"
-  local elapsed=0
-
-  printf 'Waiting for %s' "$host"
-  while ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$host" exit >/dev/null 2>&1; do
-    sleep 5
-    elapsed=$((elapsed + 5))
-    printf '.'
-    if (( elapsed >= timeout )); then
-      printf '\nTimed out waiting for %s after %ss.\n' "$host" "$timeout" >&2
-      return 1
-    fi
-  done
-  printf ' ready.\n'
-}
-
-pwnbox_up() {
-  pc_up || return
-  _pwnbox_wait_for_ssh pwnbox-windows 180 || return
-  # sshd can be ready a little before Windows Autologon finishes creating
-  # the interactive desktop required by the Scheduled Task.
-  sleep 20
-  kali_up || return
-  _pwnbox_wait_for_ssh pwnbox-kali 240
-}
-
-pwnbox_down() {
-  kali_down || return
-  pc_down
-}
-
-pwnbox_ssh() {
-  ssh pwnbox-kali
-}
-
+# Compatibility aliases now select or shut down the bare-metal OS.
+pc_up() { pwnbox windows; }
+kali_up() { pwnbox kali; }
+pwnbox_up() { pwnbox kali; }
+pc_down() { pwnbox off; }
+kali_down() { pwnbox off; }
+pwnbox_down() { pwnbox off; }
+pwnbox_ssh() { pwnbox ssh "$@"; }
 pwnbox_vnc() {
-  ssh pwnbox-kali 'pwnbox vnc start' || return
-  printf 'Connect the VNC viewer to 127.0.0.1:5901. Ctrl-C closes only the tunnel.\n'
-  ssh -N -L 5901:127.0.0.1:5901 pwnbox-kali
+  ssh "$PWNBOX_KALI_HOST" 'pwnbox-kali vnc start' || return
+  if ! ssh -S "$PWNBOX_VNC_SOCKET" -O check "$PWNBOX_KALI_HOST" >/dev/null 2>&1; then
+    ssh -M -S "$PWNBOX_VNC_SOCKET" -o ControlPersist=no -o ExitOnForwardFailure=yes \
+      -fN -L 127.0.0.1:5901:127.0.0.1:5901 "$PWNBOX_KALI_HOST" || return
+  fi
+  printf 'VNC viewer: 127.0.0.1:5901. SSH tunnel is running in the background.\n'
+  printf 'Disconnect tunnel: pwnbox_vnc_disconnect; end desktop: pwnbox_vnc_stop.\n'
 }
-
+pwnbox_vnc_disconnect() {
+  if ssh -S "$PWNBOX_VNC_SOCKET" -O check "$PWNBOX_KALI_HOST" >/dev/null 2>&1; then
+    ssh -S "$PWNBOX_VNC_SOCKET" -O exit "$PWNBOX_KALI_HOST" || return
+  fi
+  printf 'VNC tunnel closed; Kali desktop session is kept.\n'
+}
 pwnbox_vnc_stop() {
-  ssh pwnbox-kali 'pwnbox vnc stop'
+  ssh "$PWNBOX_KALI_HOST" 'pwnbox-kali vnc stop' || return
+  pwnbox_vnc_disconnect
 }
-
-# SOCKS proxy for browsing lab hosts (reachable via Kali's tun0) from the Mac
-# browser. Point FoxyProxy at SOCKS5 127.0.0.1:1080 with remote DNS enabled.
 proxy_up() {
-  ssh -fN -D 1080 pwnbox-kali \
-    && printf 'SOCKS5 127.0.0.1:1080 up. Point FoxyProxy here; proxy_down to stop.\n'
+  if ssh -S "$PWNBOX_SOCKS_SOCKET" -O check "$PWNBOX_KALI_HOST" >/dev/null 2>&1; then
+    printf 'SOCKS already running on 127.0.0.1:1080.\n'; return 0
+  fi
+  ssh -M -S "$PWNBOX_SOCKS_SOCKET" -o ControlPersist=no -o ExitOnForwardFailure=yes \
+    -fN -D 127.0.0.1:1080 "$PWNBOX_KALI_HOST"
 }
-
-proxy_down() {
-  pkill -f 'ssh -fN -D 1080 pwnbox-kali' && printf 'SOCKS proxy stopped.\n'
-}
-
-# File transfer over the existing pwnbox-kali connection (reuses ControlMaster).
-# Quote remote paths with '~' so Kali expands them, not the Mac shell.
+proxy_down() { ssh -S "$PWNBOX_SOCKS_SOCKET" -O exit "$PWNBOX_KALI_HOST"; }
 kali_pull() {
-  [ -n "$1" ] || { printf 'Usage: kali_pull <kali-path> [mac-dest]\n' >&2; return 1; }
-  scp -r "pwnbox-kali:$1" "${2:-.}"
+  [ -n "${1:-}" ] || { printf 'Usage: kali_pull <kali-path> [mac-dest]\n' >&2; return 2; }
+  scp -r -- "$PWNBOX_KALI_HOST:$1" "${2:-.}"
 }
-
 kali_push() {
-  [ -n "$1" ] || { printf 'Usage: kali_push <mac-path> [kali-dest]\n' >&2; return 1; }
-  scp -r "$1" "pwnbox-kali:${2:-}"
+  [ -n "${1:-}" ] || { printf 'Usage: kali_push <mac-path> [kali-dest]\n' >&2; return 2; }
+  scp -r -- "$1" "$PWNBOX_KALI_HOST:${2:-}"
 }

@@ -1,6 +1,6 @@
-# Windows Autologon và Scheduled Task VMware
+# Windows Autologon và Scheduled Task VMware (legacy, snapshot 67ec9c0)
 
-Runbook đầy đủ đã được hợp nhất vào [README.md](./README.md#3-windows), phần **Windows**. Relay 24/7 được hướng dẫn trong [debian-relay.md](./debian-relay.md).
+Runbook VMware đầy đủ nằm ở snapshot `67ec9c0`. V2 xem [README](../README.md); relay xem [debian-relay.md](../debian-relay.md).
 
 Flow được giữ lại là flow đã hoạt động ổn trước đây:
 

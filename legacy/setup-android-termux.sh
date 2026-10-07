@@ -1,5 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# Bootstrap or remove the always-on Android WoL relay inside Termux.
+# Legacy: bootstrap or remove the always-on Android WoL relay inside Termux.
 
 set -Eeuo pipefail
 

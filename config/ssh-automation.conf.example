@@ -1,0 +1,20 @@
+# Reference only. The controller supplies these options explicitly and uses -F /dev/null.
+# Verify each fingerprint at the corresponding physical console BEFORE accepting it.
+# 192.0.2.20 is a documentation address; replace it with your desktop LAN address.
+Host pwnbox-control-windows
+    HostName 192.0.2.20
+    User your_windows_user
+    HostKeyAlias pwnbox-control-windows
+    IdentityFile ~/.ssh/pwnbox_control_windows
+    UserKnownHostsFile ~/.ssh/pwnbox_control_known_hosts
+    IdentitiesOnly yes
+    StrictHostKeyChecking yes
+
+Host pwnbox-control-kali
+    HostName 192.0.2.20
+    User your_kali_user
+    HostKeyAlias pwnbox-control-kali
+    IdentityFile ~/.ssh/pwnbox_control_kali
+    UserKnownHostsFile ~/.ssh/pwnbox_control_known_hosts
+    IdentitiesOnly yes
+    StrictHostKeyChecking yes

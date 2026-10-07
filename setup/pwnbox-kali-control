@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Forced command for the ThinkPad key, and a narrowly scoped sudo target.
+set -Eeuo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+unset BASH_ENV ENV
+ID=
+source /etc/os-release
+[[ $ID == kali ]] || { echo 'This endpoint requires Kali.' >&2; exit 3; }
+if [[ $EUID != 0 ]]; then
+    [[ $# == 0 ]] || exit 2
+    case "${SSH_ORIGINAL_COMMAND:-}" in
+        status) printf 'PWNBOX_KALI\n';;
+        windows|off) exec sudo -n /usr/local/libexec/pwnbox-kali-control "$SSH_ORIGINAL_COMMAND";;
+        *) echo 'Allowed commands: status, windows, off.' >&2; exit 2;;
+    esac
+    exit 0
+fi
+[[ $# == 1 ]] || exit 2
+case "$1" in
+    windows)
+        read -r boot_id < /etc/pwnbox/windows-boot-id
+        [[ $boot_id =~ ^[[:xdigit:]]{4}$ ]] || exit 2
+        efibootmgr | grep -qi "^Boot${boot_id}[* ]" || { echo 'Windows firmware entry not found.' >&2; exit 5; }
+        efibootmgr -n "$boot_id"
+        systemd-run --quiet --collect --unit=pwnbox-reboot --on-active=3s /usr/bin/systemctl reboot
+        ;;
+    off) systemd-run --quiet --collect --unit=pwnbox-poweroff --on-active=3s /usr/bin/systemctl poweroff;;
+    *) exit 2;;
+esac
+printf 'PWNBOX_ACCEPTED\n'
