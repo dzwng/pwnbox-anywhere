@@ -66,6 +66,19 @@ wait_ready() {
     done
     fail 4 "Timed out waiting for $target; last observed state: $STATE."
 }
+wait_reboot() {
+    local target=$1 previous=$2 deadline remaining
+    deadline=$(( $(now) + BOOT_TIMEOUT ))
+    log "Waiting for $previous to leave before verifying reboot..."
+    # In a same-OS reboot, the old SSH endpoint must not count as completion.
+    while probe_os "$previous"; do
+        (( $(now) < deadline )) || fail 4 'Timed out waiting for the running OS to leave; reboot not verified.'
+        sleep "$POLL_INTERVAL"
+    done
+    remaining=$(( deadline - $(now) ))
+    (( remaining > 0 )) || fail 4 'Timed out verifying reboot.'
+    wait_ready "$target" "$remaining"
+}
 wait_off() {
     local deadline samples=0
     deadline=$(( $(now) + SHUTDOWN_TIMEOUT ))

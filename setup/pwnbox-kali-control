@@ -10,19 +10,50 @@ if [[ $EUID != 0 ]]; then
     [[ $# == 0 ]] || exit 2
     case "${SSH_ORIGINAL_COMMAND:-}" in
         status) printf 'PWNBOX_KALI\n';;
-        windows|off) exec sudo -n /usr/local/libexec/pwnbox-kali-control "$SSH_ORIGINAL_COMMAND";;
-        *) echo 'Allowed commands: status, windows, off.' >&2; exit 2;;
+        metrics) exec /usr/bin/python3 -I /usr/local/libexec/pwnbox-linux-metrics.py;;
+        metrics-fast) exec /usr/bin/python3 -I /usr/local/libexec/pwnbox-linux-metrics.py --fast;;
+        firmware|windows|off|bootnext-windows|bootnext-kali|reboot-windows|reboot-kali) exec sudo -n /usr/local/libexec/pwnbox-kali-control "$SSH_ORIGINAL_COMMAND";;
+        *) echo 'Allowed commands: status, firmware, metrics, metrics-fast, windows, off, bootnext-windows, bootnext-kali, reboot-windows, reboot-kali.' >&2; exit 2;;
     esac
     exit 0
 fi
 [[ $# == 1 ]] || exit 2
+read_boot_order() {
+    local firmware
+    firmware=$(efibootmgr) || return 5
+    BOOT_ORDER=$(printf '%s\n' "$firmware" | sed -n 's/^BootOrder: //p')
+    [[ $BOOT_ORDER =~ ^[[:xdigit:]]{4}(,[[:xdigit:]]{4})*$ ]] || { echo 'Cannot read firmware BootOrder.' >&2; return 5; }
+    BOOT_ORDER=${BOOT_ORDER^^}
+}
 case "$1" in
-    windows)
-        read -r boot_id < /etc/pwnbox/windows-boot-id
+    firmware)
+        read_boot_order
+        read -r windows_id < /etc/pwnbox/windows-boot-id
+        [[ $windows_id =~ ^[[:xdigit:]]{4}$ ]] || exit 2
+        efibootmgr | grep -i "^Boot${windows_id}[* ]" >/dev/null || exit 5
+        printf 'PWNBOX_BOOT_ORDER=%s\n' "$BOOT_ORDER"
+        first=false
+        [[ ${BOOT_ORDER%%,*} != "${windows_id^^}" ]] || first=true
+        printf 'PWNBOX_WINDOWS_FIRST=%s\n' "$first"
+        exit 0
+        ;;
+    windows|bootnext-windows|bootnext-kali|reboot-windows|reboot-kali)
+        target=${1#*-}
+        [[ $1 != windows ]] || target=windows
+        read -r boot_id < "/etc/pwnbox/$target-boot-id"
         [[ $boot_id =~ ^[[:xdigit:]]{4}$ ]] || exit 2
-        efibootmgr | grep -qi "^Boot${boot_id}[* ]" || { echo 'Windows firmware entry not found.' >&2; exit 5; }
+        efibootmgr | grep -i "^Boot${boot_id}[* ]" >/dev/null || { echo "$target firmware entry not found." >&2; exit 5; }
+        read_boot_order
+        before=$BOOT_ORDER
+        printf 'PWNBOX_BOOT_ORDER_BEFORE=%s\n' "$before"
         efibootmgr -n "$boot_id"
-        systemd-run --quiet --collect --unit=pwnbox-reboot --on-active=3s /usr/bin/systemctl reboot
+        read_boot_order
+        printf 'PWNBOX_BOOT_ORDER_AFTER_SET=%s\n' "$BOOT_ORDER"
+        [[ $before == "$BOOT_ORDER" ]] || { echo 'Firmware BootOrder changed while setting BootNext; reboot cancelled.' >&2; exit 5; }
+        efibootmgr | grep -i "^BootNext: $boot_id$" >/dev/null || { echo 'BootNext verification failed.' >&2; exit 5; }
+        if [[ $1 != bootnext-* ]]; then
+            systemd-run --quiet --collect --unit=pwnbox-reboot --on-active=3s /usr/bin/systemctl reboot
+        fi
         ;;
     off) systemd-run --quiet --collect --unit=pwnbox-poweroff --on-active=3s /usr/bin/systemctl poweroff;;
     *) exit 2;;

@@ -2,13 +2,14 @@
 # Run on the Debian controller. The Mac wrapper delegates control commands here.
 set -Eeuo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-for module in common config detect wol windows kali; do
+for module in common config detect wol windows kali firmware; do
     source "$ROOT/lib/$module.sh"
 done
 
 usage() {
     cat <<'EOF'
 Usage: pwnbox [--config FILE] status|wake|windows|kali|off|doctor
+       pwnbox [--config FILE] bootnext-windows|bootnext-kali|reboot-windows|reboot-kali
        pwnbox help
 Control runs on the ThinkPad. Use the Mac wrapper for direct interactive SSH.
 Exit codes: 0 success, 2 config/usage, 3 unknown/unreachable, 4 timeout,
@@ -23,7 +24,7 @@ fi
 COMMAND=${1:-help}
 [[ $# -le 1 ]] || fail 2 'Too many arguments.'
 case "$COMMAND" in help|-h|--help) usage; exit 0;; esac
-case "$COMMAND" in status|wake|windows|kali|off|doctor) :;; *) fail 2 "Unknown command: $COMMAND";; esac
+case "$COMMAND" in status|wake|windows|kali|off|doctor|bootnext-windows|bootnext-kali|reboot-windows|reboot-kali) :;; *) fail 2 "Unknown command: $COMMAND";; esac
 load_config
 init_state
 if [[ $COMMAND == status ]]; then
@@ -55,15 +56,32 @@ if [[ $STATE == TRANSITIONING ]]; then
     wait_ready ANY "$BOOT_TIMEOUT"
 fi
 case "$COMMAND" in
+    bootnext-*|reboot-*)
+        [[ $STATE == WINDOWS || $STATE == KALI ]] || fail 3 'Cannot identify a running OS; refusing BootNext/reboot.'
+        TARGET=${COMMAND#*-}; TARGET=${TARGET^^}
+        firmware_snapshot "$STATE" "before $COMMAND" || fail 5 'Cannot audit BootOrder before boot control; no firmware or power action sent.'
+        if [[ $COMMAND == bootnext-* ]]; then
+            if [[ $STATE == WINDOWS ]]; then windows_bootnext "$TARGET"; else kali_bootnext "$TARGET"; fi
+            $ACTION_ACK || fail 5 'BootNext was not acknowledged; inspect firmware before retrying.'
+            log "BootNext set to $TARGET; desktop stays in $STATE."
+        else
+            PREVIOUS=$STATE
+            begin_transition "$TARGET" "$BOOT_TIMEOUT"
+            if [[ $STATE == WINDOWS ]]; then windows_reboot "$TARGET"; else kali_reboot "$TARGET"; fi
+            wait_reboot "$TARGET" "$PREVIOUS"
+        fi
+        firmware_verify "after $COMMAND"
+        ;;
     wake)
-        if [[ $STATE == WINDOWS || $STATE == KALI ]]; then log "$STATE already ready."; exit 0; fi
+        if [[ $STATE == WINDOWS || $STATE == KALI ]]; then firmware_verify 'wake (already running)'; log "$STATE already ready."; exit 0; fi
         begin_transition WAKE "$WAKE_TIMEOUT"
         send_wol
         wait_ready ANY "$WAKE_TIMEOUT" true
+        firmware_verify 'after wake'
         ;;
     windows|kali)
         TARGET=${COMMAND^^}
-        if [[ $STATE == "$TARGET" ]]; then log "$TARGET already ready."; exit 0; fi
+        if [[ $STATE == "$TARGET" ]]; then firmware_verify "$COMMAND (already running)"; log "$TARGET already ready."; exit 0; fi
         if [[ $STATE != WINDOWS && $STATE != KALI ]]; then
             log 'OS unavailable; sending WoL and verifying the OS before any action.'
             begin_transition WAKE "$WAKE_TIMEOUT"
@@ -71,10 +89,12 @@ case "$COMMAND" in
             wait_ready ANY "$WAKE_TIMEOUT" true
         fi
         if [[ $STATE != "$TARGET" ]]; then
+            firmware_snapshot "$STATE" "before switching to $TARGET" || fail 5 'Cannot audit BootOrder before OS switch; no firmware or reboot action sent.'
             begin_transition "$TARGET" "$BOOT_TIMEOUT"
             if [[ $STATE == WINDOWS ]]; then windows_kali; else kali_windows; fi
             wait_ready "$TARGET" "$BOOT_TIMEOUT"
         fi
+        firmware_verify "after start $TARGET"
         log "$TARGET ready: $(host_for "$TARGET")"
         ;;
     off)

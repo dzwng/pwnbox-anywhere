@@ -65,6 +65,15 @@ remote_action() {
     else
         output=$(ssh_control KALI "$command" 2>"$STATE_DIR/action.err") || rc=$?
     fi
+    # Keep firmware evidence even when the endpoint refuses to reboot.
+    local line
+    while IFS= read -r line; do
+        line=${line%$'\r'}
+        case "$line" in
+            PWNBOX_BOOT_ORDER_BEFORE=*) log "Firmware BootOrder before setting BootNext: ${line#*=}";;
+            PWNBOX_BOOT_ORDER_AFTER_SET=*) log "Firmware BootOrder after setting BootNext: ${line#*=}";;
+        esac
+    done <<< "$output"
     if (( rc == 255 || rc == 124 || rc == 137 )); then
         # A disconnect does not prove failure or success. Never repeat a reboot.
         log 'Control connection ended without a reliable exit status; verifying transition.'

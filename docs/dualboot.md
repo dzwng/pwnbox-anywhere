@@ -29,10 +29,17 @@ sudo efibootmgr -n WINDOWS_BOOT_ID
 sudo reboot
 ```
 
-Controller dùng hai cơ chế này. Helper Kali lấy ID từ `/etc/pwnbox/windows-boot-id`,
+Controller dùng hai cơ chế này. BootNext riêng: `pwnbox bootnext-windows` hoặc
+`pwnbox bootnext-kali` không reboot. `pwnbox reboot-windows` / `pwnbox reboot-kali`
+đặt BootNext và reboot trong cùng request, kể cả khi OS đích là OS hiện tại.
+Các lệnh này yêu cầu desktop đang chạy và OS xác minh được; không gửi WoL.
+
+Helper Kali lấy ID từ `/etc/pwnbox/windows-boot-id` và `/etc/pwnbox/kali-boot-id`,
 chỉ root sửa được. `KALI_BOOT_ID` trong controller config mô tả mapping, không dùng
-để tạo entry. `WINDOWS_BOOT_ID` phải khớp giá trị truyền cho setup Kali.
+để tạo entry. `WINDOWS_BOOT_ID` và `KALI_BOOT_ID` phải khớp giá trị truyền cho setup Kali.
 [efibootmgr manual](https://manpages.debian.org/trixie/efibootmgr/efibootmgr.8.en.html).
+Windows BootNext dùng firmware GUID Kali hoặc `{bootmgr}` cho Windows;
+[Microsoft mô tả Windows Boot Manager trong UEFI](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/bcd-system-store-settings-for-uefi?view=windows-11).
 
 ## WoL
 
@@ -67,8 +74,10 @@ Chạy từng trường hợp, ghi lại kết quả. Dừng khi một bước l
 | Kali | `pwnbox off` | Clean shutdown; WoL lần sau vẫn hoạt động |
 | Windows/Kali | Lệnh chọn chính OS đó | Không WoL/reboot |
 
-Sau mỗi vòng, kiểm tra BootOrder giữ nguyên. Windows Update hoặc firmware
-ngoài project có thể thay đổi môi trường; xem console nếu timeout. Không tự sửa BootOrder.
+Sau mỗi vòng, kiểm tra BootOrder giữ nguyên. Controller mới ghi BootOrder trước/sau
+đặt BootNext và sau boot; thất bại nếu sau boot Windows không đứng đầu hoặc không đọc
+được thứ tự. Test mô phỏng không chứng minh firmware máy thật giữ thứ tự qua reboot.
+Xem [khôi phục và chẩn đoán](boot-order-troubleshooting.md). Không tự sửa BootOrder.
 
 ## Hardware test tự động trên ThinkPad
 

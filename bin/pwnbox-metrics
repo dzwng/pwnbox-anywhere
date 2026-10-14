@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Controller-side, fixed read-only metrics commands. Never accepts shell input.
+set -Eeuo pipefail
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+source "$ROOT/lib/common.sh"
+source "$ROOT/lib/config.sh"
+[[ $# == 2 && ( $1 == WINDOWS || $1 == KALI ) && ( $2 == disk || $2 == fast ) ]] || exit 2
+load_config
+init_state
+os=$1
+if [[ $os == WINDOWS ]]; then
+    command=$(cat "$ROOT/web/windows-metrics.ps1")
+    prefix='$PwnboxReadDisk=$false; '
+    [[ $2 != disk ]] || prefix='$PwnboxReadDisk=$true; '
+    # Literal dollar signs, never shell evaluation of the PowerShell source.
+    command=$(printf '%s' "$prefix$command" | python3 -c 'import base64,sys; source="\n".join(line.strip() for line in sys.stdin.read().splitlines() if line.strip() and not line.lstrip().startswith("#")); encoded=base64.b64encode(source.encode("utf-16le")).decode("ascii"); assert len(encoded) <= 7500, "Metrics command exceeds Windows shell budget"; print(encoded)')
+    command="powershell.exe -NoProfile -NonInteractive -EncodedCommand $command"
+    host=$WINDOWS_HOST user=$WINDOWS_USER port=$WINDOWS_SSH_PORT key=$WINDOWS_IDENTITY_FILE
+else
+    command=metrics
+    [[ $2 != fast ]] || command=metrics-fast
+    host=$KALI_HOST user=$KALI_USER port=$KALI_SSH_PORT key=$KALI_IDENTITY_FILE
+fi
+# Short, OS-specific control sockets. Never reuse a shell/interactive connection.
+# No forwarding; host fingerprints and keys are identical to the controller probes.
+identity=$(printf '%s' "$host|$user|$port|$key|$KNOWN_HOSTS_FILE" | cksum)
+socket="$STATE_DIR/metrics-${os,,}-${identity%% *}.sock"
+timeout --kill-after=2 "${PROBE_TIMEOUT}s" ssh -F /dev/null -T \
+    -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+    -o "UserKnownHostsFile=$KNOWN_HOSTS_FILE" -o "HostKeyAlias=pwnbox-control-${os,,}" \
+    -o ConnectionAttempts=1 -o "ConnectTimeout=$CONNECT_TIMEOUT" \
+    -o ServerAliveInterval=2 -o ServerAliveCountMax=2 \
+    -o ControlMaster=auto -o ControlPersist=15s -o "ControlPath=$socket" \
+    -i "$key" -p "$port" -l "$user" "$host" "$command"

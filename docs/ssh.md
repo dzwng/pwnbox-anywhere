@@ -21,10 +21,16 @@ account administrator sẽ dùng cho SSH. Script giữ key khác, dùng ACL SYST
 và Match User. Account admin automation có quyền rộng; không dùng key này trên Mac.
 [Microsoft OpenSSH configuration](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh-server-configuration).
 
-Kali: `sudo bash setup/setup-kali.sh --user your_kali_user --windows-boot-id 0000 --automation-public-key /path/thinkpad-kali.pub`.
+Kali: `sudo bash setup/setup-kali.sh --user your_kali_user --windows-boot-id 0000 --kali-boot-id 0002 --automation-public-key /path/thinkpad-kali.pub`.
 Public key bị forced command `pwnbox-kali-control` và `restrict`; không mở shell,
-SFTP hay forwarding bằng key này. Endpoint chỉ nhận status/windows/off. Sudoers cho
-đúng hai action, không cấp sudo shell hay `efibootmgr *`.
+SFTP hay forwarding bằng key này. Endpoint chỉ nhận status/windows/off, bốn lệnh
+bootnext-windows/bootnext-kali/reboot-windows/reboot-kali và hai lệnh metrics/metrics-fast
+chỉ đọc (xem [Control Center](control-center.md)). Sudoers cho đúng các action,
+không cấp sudo shell hay `efibootmgr *`. Endpoint hiện có nâng cấp bằng
+`sudo bash setup/update-kali-control.sh --kali-boot-id 0002` với ID đã xác minh.
+Lệnh `firmware` chỉ đọc BootOrder qua helper root và trả về ưu tiên Windows;
+không mở quyền chạy efibootmgr tùy ý. Nâng cấp lại helper/sudoers trước controller
+khi bật kiểm tra BootOrder.
 
 ## 2. Host fingerprint (quan trọng khi cùng IP)
 

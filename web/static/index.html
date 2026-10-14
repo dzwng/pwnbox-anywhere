@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b111b"><meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Pwnbox Control Center</title><link rel="icon" href="/icon.svg"><link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+</head>
+<body>
+<svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10H3ZM9 20v-7h6v7"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M2 12h5l3-8 4 16 3-8h5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="i-laptop" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="13" rx="2"/><path d="m4 16-2 5h20l-2-5M9 18h6"/></symbol>
+  <symbol id="i-desktop" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1v4m6-4v4M9 19v4m6-4v4M1 9h4m-4 6h4m14-6h4m-4 6h4"/><rect x="9" y="9" width="6" height="6"/></symbol>
+  <symbol id="i-disk" viewBox="0 0 24 24"><path d="m5 4-3 10v6h20v-6L19 4Z M2 14h20M16 17h2"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2v10M6 5a9 9 0 1 0 12 0"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7A9 9 0 1 0 21 14M20 2v5h-5"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 2 9 4v6c0 5-9 10-9 10S3 17 3 12V6Z m-5 10 3 3 6-6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4 10-10"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-windows" viewBox="0 0 24 24"><path d="M3 5 11 4v7H3Zm10-1 9-2v9h-9ZM3 13h8v7l-8-1Zm10 0h9v9l-9-2Z"/></symbol>
+  <symbol id="i-kali" viewBox="0 0 24 24"><path d="M3 15c5-10 14-10 18-2-4-4-7-2-8 0 4 0 6 2 7 5-4-4-8-5-13-2m-4-6c3-3 6-4 10-3m2 0 4-3-1 5"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M10 3H3v18h7M8 12h13m-5-5 5 5-5 5"/></symbol>
+  <symbol id="i-memory" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="12" rx="2"/><path d="M5 17v3m4-3v3m6-3v3m4-3v3M6 9v4m4-4v4m4-4v4m4-4v4"/></symbol>
+  <symbol id="i-gpu" viewBox="0 0 24 24"><rect x="2" y="5" width="19" height="13" rx="2"/><circle cx="10" cy="11.5" r="4"/><path d="m10 8 1 3 2 2m-3-2-3 1m10-4h2m-2 4h2M5 18v3m4-3v3m12-7h2"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 24 24"><rect x="2" y="6" width="18" height="12" rx="2"/><path d="M23 10v4M6 10v4m4-4v4m4-4v4"/></symbol>
+  <symbol id="i-temperature" viewBox="0 0 24 24"><path d="M9 14V5a3 3 0 0 1 6 0v9a5 5 0 1 1-6 0ZM12 9v9m5-11h3m-3 4h3"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M8 2v5m8-5v5M5 7h14v3a7 7 0 0 1-14 0Zm7 10v5"/></symbol>
+  <symbol id="i-warning" viewBox="0 0 24 24"><path d="m12 3 10 18H2Zm0 6v5m0 3v1"/></symbol>
+</svg>
+<section id="login" class="login-wrap" hidden>
+  <div class="login-card"><img class="brand-icon" src="/icon.svg" alt=""><div class="eyebrow">YOUR PRIVATE CONTROL CENTER</div>
+    <h1>Pwnbox<span> Control</span></h1><p>Your private lab, within reach.<br>Manage your desktop from any device.</p>
+    <div class="login-art"><img src="/thinkpad.svg" alt=""><img src="/desktop.svg" alt=""></div><form id="login-form"><label for="password">Control Center password</label><input id="password" type="password" autocomplete="current-password" placeholder="Enter your password" required maxlength="256"><button class="button primary" type="submit">Sign in <span aria-hidden="true">→</span></button></form>
+    <p id="login-error" class="error" role="alert"></p><div class="login-note">Private access through Tailscale · HTTPS</div>
+  </div>
+</section>
+<div id="shell" class="shell" hidden>
+  <aside class="sidebar"><a class="brand" href="/"><img src="/icon.svg" alt=""><span>PWNBOX<b>CONTROL CENTER</b></span></a>
+    <div class="nav-label">YOUR WORKSPACE</div><nav aria-label="Main navigation">
+      <button data-view="overview" class="nav-button active"><svg class="icon"><use href="#i-home"/></svg>Overview</button>
+      <button data-view="diagnostics" class="nav-button"><svg class="icon"><use href="#i-pulse"/></svg>Diagnostics</button>
+      <button data-view="history" class="nav-button"><svg class="icon"><use href="#i-clock"/></svg>Activity</button>
+    </nav><div class="sidebar-bottom"><svg class="icon"><use href="#i-shield"/></svg><div>Your private workspace<span>ThinkPad Debian · Controller</span></div></div>
+  </aside>
+  <div class="workspace"><header class="topbar"><a class="mobile-brand" href="/"><img src="/icon.svg" alt=""><span>PWNBOX <b>CONTROL</b></span></a><div class="breadcrumb">Workspace <span>/</span> <b id="crumb">Overview</b></div><div class="topbar-right"><span class="private-pill"><svg class="icon"><use href="#i-shield"/></svg>Tailscale · Private</span><button id="logout" class="icon-button" title="Sign out" aria-label="Sign out"><svg class="icon"><use href="#i-out"/></svg></button></div></header>
+    <main><div id="demo-banner" class="demo-banner" hidden>DEMO PREVIEW — simulated data. Actions do not control real devices.</div>
+      <div class="page-heading"><div><div class="eyebrow">PWNBOX ANYWHERE</div><h1 id="page-title">Overview</h1><p id="page-description">Your machines. One place. Anywhere.</p></div><div class="live-label"><span class="dot"></span><span id="connection-label">Connecting…</span></div></div>
+      <div id="connection-error" class="notice warning" hidden role="status"></div>
+      <section id="overview" class="view">
+        <div class="machine-grid"><article class="card machine controller-machine"><div class="machine-body"><img class="machine-art laptop-art" src="/thinkpad.svg" alt="ThinkPad laptop illustration"><div class="machine-copy"><div class="device-kicker">CONTROLLER · ALWAYS ON</div><h2>ThinkPad</h2><p>Debian Linux</p><span class="badge green"><span class="dot"></span>Control service online</span></div></div><div class="machine-footer"><span><svg class="icon"><use href="#i-shield"/></svg>Your private relay</span><span id="thinkpad-uptime">—</span></div></article>
+          <article class="card machine desktop-machine"><div class="machine-body"><img class="machine-art tower-art" src="/desktop.svg" alt="Desktop tower illustration"><div class="machine-copy"><div class="device-kicker">DESKTOP · DUAL BOOT</div><h2 id="desktop-os">Checking…</h2><p id="desktop-description">Windows 11 / Kali Linux</p><span id="desktop-badge" class="badge muted">Unknown</span></div><div id="current-os-icon" class="current-os-icon" aria-hidden="true"></div></div><div class="machine-footer"><span id="desktop-state-note">Waiting for OS verification</span><span id="status-age">—</span></div></article></div>
+        <div class="section-heading"><h2>Quick controls</h2><span>Wake your desktop or switch operating systems</span></div>
+        <div class="actions"><button data-action="windows" class="action windows"><span class="action-icon"><svg class="icon"><use href="#i-windows"/></svg></span><span><b>Start Windows</b><small>Wake or switch operating system</small></span><svg class="icon arrow"><use href="#i-arrow"/></svg></button><button data-action="kali" class="action kali"><span class="action-icon"><svg class="icon"><use href="#i-kali"/></svg></span><span><b>Start Kali</b><small>Wake or switch operating system</small></span><svg class="icon arrow"><use href="#i-arrow"/></svg></button><button data-action="off" class="action off"><span class="action-icon"><svg class="icon"><use href="#i-power"/></svg></span><span><b>Power off</b><small>Shut down the running OS</small></span></button></div>
+        <div class="card boot-controls"><div class="boot-choice"><label for="bootnext-os">BootNext</label><select id="bootnext-os"><option value="windows" selected>Windows 11</option><option value="kali">Kali Linux</option></select><p>Choose the OS for the next boot only. Windows is the default.</p></div><div class="boot-buttons"><button data-action="bootnext" class="button secondary" disabled>Set BootNext</button><button data-action="reboot" class="button primary" disabled><svg class="icon"><use href="#i-refresh"/></svg>Reboot</button></div><p class="boot-help">Set BootNext keeps the desktop running. Reboot applies your selection and restarts directly into that OS.</p></div>
+        <div id="operation" class="card operation" hidden></div>
+        <div class="section-heading"><h2>System health</h2><span class="cadence"><span class="dot"></span>Refreshes every 5s</span></div>
+        <div class="health-grid"><article class="card health"><div class="health-header"><h3><svg class="icon"><use href="#i-laptop"/></svg>ThinkPad</h3><span id="thinkpad-age" class="timestamp">—</span></div><div id="thinkpad-metrics" class="metric-list"></div><div id="thinkpad-extras" class="extras"></div></article>
+          <article class="card health"><div class="health-header"><h3><svg class="icon"><use href="#i-desktop"/></svg>Desktop</h3><span id="desktop-age" class="timestamp">—</span></div><div id="desktop-metrics" class="metric-list"></div><p id="gpu-note" class="metric-note">AMD Radeon RX 9060 XT · 16 GB VRAM</p><p id="desktop-metrics-error" class="metric-note warning-text" hidden></p></article></div>
+        <div class="section-heading"><h2>Recent activity</h2><button data-view="history" class="text-button">View all →</button></div><div id="recent-history" class="card history-list"></div>
+      </section>
+      <section id="diagnostics" class="view" hidden><div class="card diagnostics-card"><div class="health-header"><h3><svg class="icon"><use href="#i-pulse"/></svg>Connectivity check</h3><button id="diagnose" class="button secondary"><svg class="icon"><use href="#i-refresh"/></svg>Run check</button></div><p>Check LAN connectivity, SSH authentication, and operating system identity.</p><div class="diagnostic-tags"><span><svg class="icon"><use href="#i-shield"/></svg>Read-only check</span><span><svg class="icon"><use href="#i-desktop"/></svg>Windows / Kali</span></div><div id="diagnostic-time" class="timestamp">Not checked yet</div><pre id="diagnostic-output">Select “Run check” to begin.</pre></div><div class="notice">An unreachable desktop is shown as Unknown. A lost connection never triggers an automatic reboot or proves the machine is off.</div></section>
+      <section id="history" class="view" hidden><div id="full-history" class="card history-list"></div><div class="footnote">Up to 200 operations retained. Success is reported only after the controller verifies the result.</div></section>
+      <footer><span>Pwnbox Control Center</span><span>Metrics refresh while this page is active · Disk every 60s</span></footer>
+    </main>
+  </div>
+  <nav class="mobile-nav" aria-label="Mobile navigation"><button data-view="overview" class="active"><svg class="icon"><use href="#i-home"/></svg><span>Overview</span></button><button data-view="diagnostics"><svg class="icon"><use href="#i-pulse"/></svg><span>Diagnostics</span></button><button data-view="history"><svg class="icon"><use href="#i-clock"/></svg><span>Activity</span></button></nav>
+</div>
+<dialog id="confirm-dialog"><div class="dialog-body"><div class="confirm-heading"><div id="confirm-icon" class="confirm-icon"></div><div><div class="eyebrow">CONFIRM OPERATION</div><h2 id="confirm-title"></h2></div></div><p id="confirm-description"></p><div id="confirm-transition" class="confirm-transition"></div><div class="notice warning"><svg class="icon"><use href="#i-warning"/></svg><span>Save your work before continuing. Restarting, switching OS or shutting down will close running applications.</span></div><label class="confirm-check"><input id="confirm-check" type="checkbox">I have saved my work and want to continue.</label><p id="confirm-error" class="error" role="alert"></p><div class="dialog-actions"><button id="cancel-action" class="button secondary">Cancel</button><button id="confirm-action" class="button primary" disabled>Confirm</button></div></div></dialog>
+<div id="toast" class="toast" hidden role="status"></div>
+</body></html>

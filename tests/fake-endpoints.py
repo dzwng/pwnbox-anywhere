@@ -10,6 +10,15 @@ tool, *args = sys.argv[1:]
 state_file = root / 'desktop'
 state = state_file.read_text().strip()
 log = root / 'actions'
+order_file = root / 'boot-order'
+order = order_file.read_text().strip().split(',')
+
+def firmware(os_name):
+    if os.environ.get('MOCK_FIRMWARE_UNAVAILABLE'):
+        sys.exit(5)
+    ids = {'WINDOWS': '{bootmgr}', 'KALI': '{00000000-0000-0000-0000-000000000000}'} if os_name == 'WINDOWS' else {'WINDOWS': '0000', 'KALI': '0002'}
+    print('PWNBOX_BOOT_ORDER=' + ','.join(ids[name] for name in order))
+    print('PWNBOX_WINDOWS_FIRST=' + str(order[0] == 'WINDOWS').lower())
 
 def record(action):
     with log.open('a', newline='\n') as stream:
@@ -40,8 +49,13 @@ if tool == 'ping':
 assert tool == 'ssh'
 command = args[-1]
 os_name = 'WINDOWS' if 'HostKeyAlias=pwnbox-control-windows' in args else 'KALI'
+if os.environ.get('MOCK_TRACE'):
+    with (root / 'trace').open('a') as stream:
+        stream.write(f'{os_name} state={state} bytes={len(command)}\n')
 if state.startswith('TRANSITION:'):
     state_file.write_text(state.split(':', 1)[1])
+    if os.environ.get('MOCK_ORDER_CHANGE_ON_BOOT'):
+        order_file.write_text('KALI,WINDOWS')
     sys.exit(255)  # At least one unreachable observation during a reboot.
 if os.environ.get('MOCK_HUNG'):
     time.sleep(10)
@@ -49,34 +63,64 @@ if state != os_name and state != 'BOTH':
     sys.exit(255)
 if os_name == 'WINDOWS':
     command = base64.b64decode(command.split()[-1]).decode('utf-16le')
-    if 'PWNBOX_WINDOWS' in command:
+    if "Write-Output 'PWNBOX_WINDOWS'" in command:
         print('PWNBOX_WINDOWS')
         sys.exit(0)
+    if 'Get-PwnboxBootOrder' in command and 'bootsequence ' not in command:
+        assert '/set' not in command and 'shutdown.exe' not in command
+        firmware('WINDOWS')
+        sys.exit(0)
     # Check safety properties of the generated command, not only its outcome.
-    assert '/f' not in command and '/t 0' in command
+    assert '/f' not in command
     if 'bcdedit' in command:
-        assert "'{fwbootmgr}' bootsequence '{00000000-0000-0000-0000-000000000000}'" in command
-        assert command.index('if ($LASTEXITCODE -ne 0)') < command.index('shutdown.exe')
-        record('windows->kali')
+        target = 'WINDOWS' if "bootsequence '{bootmgr}'" in command else 'KALI'
+        assert "'{fwbootmgr}' bootsequence " in command
+        if target == 'KALI':
+            assert "bootsequence '{00000000-0000-0000-0000-000000000000}'" in command
+        reboot = 'shutdown.exe' in command
+        if reboot:
+            assert '/r /t 0' in command
+            assert command.index('if ($LASTEXITCODE -ne 0)') < command.index('shutdown.exe')
+        record('windows->' + target.lower() if reboot else 'windows->bootnext-' + target.lower())
+        assert 'PWNBOX_BOOT_ORDER_BEFORE' in command and 'PWNBOX_BOOT_ORDER_AFTER_SET' in command
+        if reboot:
+            assert command.index('if ($before -ne $after)') < command.index('shutdown.exe')
+        print('PWNBOX_BOOT_ORDER_BEFORE=' + ','.join(order))
+        if os.environ.get('MOCK_ORDER_CHANGE_ON_SET'):
+            order_file.write_text('KALI,WINDOWS')
+            print('PWNBOX_BOOT_ORDER_AFTER_SET=KALI,WINDOWS')
+            sys.exit(5)
         if os.environ.get('MOCK_ACTION_FAIL'):
             print('bcdedit failed', file=sys.stderr)
             sys.exit(5)
-        transition('KALI')
+        if reboot and not os.environ.get('MOCK_NO_REBOOT'):
+            transition(target)
     else:
+        assert '/s /t 0' in command
         record('windows->off')
         state_file.write_text('OFF')
 else:
     if command == 'status':
         print('PWNBOX_KALI')
         sys.exit(0)
-    assert command in ('windows', 'off')
+    if command == 'firmware':
+        firmware('KALI')
+        sys.exit(0)
+    assert command in ('windows', 'off', 'bootnext-windows', 'bootnext-kali', 'reboot-windows', 'reboot-kali')
     record('kali->' + command)
     if os.environ.get('MOCK_ACTION_FAIL'):
         sys.exit(5)
-    if command == 'windows':
+    if command.startswith('bootnext-'):
+        pass
+    elif command.startswith('reboot-'):
+        if not os.environ.get('MOCK_NO_REBOOT'):
+            transition(command.split('-')[1].upper())
+    elif command == 'windows':
         transition('WINDOWS')
     else:
         state_file.write_text('OFF')
 if os.environ.get('MOCK_DISCONNECT'):
     sys.exit(255)
+if os.environ.get('MOCK_NO_ACK'):
+    sys.exit(0)
 print('PWNBOX_ACCEPTED')

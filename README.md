@@ -7,6 +7,13 @@ ThinkPad Debian chạy 24/7 nhận lệnh điều khiển; Mac kết nối trự
 **Windows là OS mặc định.** Khi yêu cầu Kali, project chọn Kali cho một lần boot.
 Windows và Kali dùng chung PC, nên chỉ một OS chạy tại một thời điểm.
 
+## Web Control Center
+
+Dashboard tự host trên ThinkPad cho iPhone/laptop qua Tailscale: bật/chọn OS,
+shutdown, theo dõi tiến trình và lịch sử, sức khỏe ThinkPad và CPU/RAM/Disk/GPU/VRAM
+desktop. Metrics tải cập nhật mỗi 5 giây khi trang hoạt động. Hướng dẫn cài,
+demo local và giới hạn driver: [Control Center](docs/control-center.md).
+
 ## Cheatsheet — chạy trên Mac
 
 Các lệnh dưới dùng sau khi đã [setup](docs/setup.md) và source aliases.

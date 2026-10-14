@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+for module in common config detect; do source "$ROOT/lib/$module.sh"; done
+load_config
+init_state
+windows=false kali=false lan=false
+probe_os WINDOWS && windows=true
+probe_os KALI && kali=true
+lan_healthy && lan=true
+python3 - "$windows" "$kali" "$lan" "$STATE_DIR" <<'PY'
+import json, sys
+from pathlib import Path
+state = Path(sys.argv[4])
+data = {'windows_ssh_verified': sys.argv[1] == 'true', 'kali_ssh_verified': sys.argv[2] == 'true',
+        'lan_healthy': sys.argv[3] == 'true'}
+for os_name in ('windows', 'kali'):
+    try:
+        data[os_name + '_detail'] = (state / ('probe-' + os_name + '.err')).read_text()[-500:]
+    except OSError:
+        data[os_name + '_detail'] = ''
+print(json.dumps(data))
+PY
