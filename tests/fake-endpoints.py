@@ -48,6 +48,20 @@ if tool == 'ping':
 
 assert tool == 'ssh'
 command = args[-1]
+vm_file = root / 'vm'
+if 'HostKeyAlias=pwnbox-control-kali-vm' in args:
+    if state != 'WINDOWS' or not vm_file.exists() or vm_file.read_text() != 'RUNNING' or os.environ.get('MOCK_VM_SSH_FAIL'):
+        sys.exit(255)
+    if command == 'status':
+        print('PWNBOX_KALI' if os.environ.get('MOCK_VM_WRONG_MARKER') else 'PWNBOX_KALI_VM')
+    elif command == 'off':
+        record('vm->off')
+        if not os.environ.get('MOCK_VM_STAYS_ON'):
+            vm_file.write_text('STOPPED')
+        print('PWNBOX_ACCEPTED')
+    else:
+        raise AssertionError('Unexpected VM guest command')
+    sys.exit(0)
 os_name = 'WINDOWS' if 'HostKeyAlias=pwnbox-control-windows' in args else 'KALI'
 if os.environ.get('MOCK_TRACE'):
     with (root / 'trace').open('a') as stream:
@@ -63,6 +77,18 @@ if state != os_name and state != 'BOTH':
     sys.exit(255)
 if os_name == 'WINDOWS':
     command = base64.b64decode(command.split()[-1]).decode('utf-16le')
+    if 'windows-vmware-control.ps1' in command:
+        if os.environ.get('MOCK_VM_INVENTORY_FAIL'):
+            sys.exit(5)
+        if "'start'" in command:
+            record('vm->start')
+            if not os.environ.get('MOCK_VM_NO_START'):
+                vm_file.write_text('RUNNING')
+            print('PWNBOX_ACCEPTED')
+        else:
+            assert "'status'" in command
+            print('PWNBOX_VM_RUNNING' if vm_file.read_text() == 'RUNNING' else 'PWNBOX_VM_STOPPED')
+        sys.exit(0)
     if "Write-Output 'PWNBOX_WINDOWS'" in command:
         print('PWNBOX_WINDOWS')
         sys.exit(0)

@@ -1,5 +1,8 @@
 # SSH: automation và interactive
 
+Kali VMware dùng bộ key/host alias riêng, không thay các key dual boot dưới đây.
+Xem [VMware: key và fingerprint theo từng máy](vmware.md).
+
 ## 1. Key trên ThinkPad
 
 Chạy bằng user Debian dùng để điều phối. Không ghi đè key đã có:

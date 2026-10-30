@@ -1,0 +1,10 @@
+# Separate optional profile on ThinkPad: ~/.config/pwnbox/vmware.conf (chmod 600).
+# Literal values only; VM address is NOT the desktop's dual-boot LAN address.
+# Enable only after Windows task, guest endpoint, key and fingerprint are ready.
+VM_ENABLED=false
+VM_HOST=kali-vmware
+VM_USER=kali
+VM_SSH_PORT=22
+VM_IDENTITY_FILE=~/.ssh/pwnbox_control_kali_vm
+VM_KNOWN_HOSTS_FILE=~/.ssh/pwnbox_vm_known_hosts
+VM_TIMEOUT=240

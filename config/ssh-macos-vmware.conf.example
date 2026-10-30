@@ -1,0 +1,11 @@
+# Add this separate block BEFORE wildcard Host * blocks; merge duplicate aliases.
+# Replace User with `whoami` INSIDE the HTB-Kali VM, not the dual-boot username.
+Host kali-vm kali-vmware
+    HostName kali-vmware
+    User your_vm_user
+    IdentityFile ~/.ssh/pwnbox_kali_vm
+    IdentitiesOnly yes
+    HostKeyAlias pwnbox-interactive-kali-vm
+    ProxyJump none
+    ServerAliveInterval 30
+    ServerAliveCountMax 3

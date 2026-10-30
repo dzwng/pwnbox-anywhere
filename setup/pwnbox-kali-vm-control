@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Guest-only endpoint: no EFI, reboot, Windows control or interactive shell.
+set -Eeuo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+unset BASH_ENV ENV
+source /etc/os-release
+[[ $ID == kali && $(systemd-detect-virt --vm) == vmware ]] || exit 3
+if [[ $EUID == 0 ]]; then
+    [[ $# == 1 && $1 == off ]] || exit 2
+    systemd-run --quiet --collect --unit=pwnbox-vm-poweroff --on-active=3s /usr/bin/systemctl poweroff
+    printf 'PWNBOX_ACCEPTED\n'
+else
+    [[ $# == 0 ]] || exit 2
+    case ${SSH_ORIGINAL_COMMAND:-} in
+        status) printf 'PWNBOX_KALI_VM\n';;
+        off) exec sudo -n /usr/local/libexec/pwnbox-kali-vm-control off;;
+        *) echo 'Allowed commands: status, off.' >&2; exit 2;;
+    esac
+fi

@@ -22,11 +22,13 @@ import time
 from urllib.parse import urlsplit
 
 from metrics import LinuxMetrics
+from sites import SitesCatalog
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "web" / "static"
 STATES = {"WINDOWS", "KALI", "UNKNOWN", "OFF", "TRANSITIONING"}
-ACTIONS = {"windows", "kali", "off", "bootnext-windows", "bootnext-kali", "reboot-windows", "reboot-kali"}
+ACTIONS = {"windows", "kali", "off", "bootnext-windows", "bootnext-kali", "reboot-windows", "reboot-kali", "vm-start", "vm-stop"}
+VM_STATES = {"DISABLED", "UNKNOWN", "HOST_UNAVAILABLE", "STOPPED", "GUEST_UNREACHABLE", "RUNNING"}
 SESSION_TTL = 7 * 86400
 
 
@@ -121,6 +123,21 @@ class Backend:
     def __init__(self, demo=False):
         self.demo = demo
         self.demo_state = "WINDOWS"
+        self.demo_vm = "STOPPED"
+
+    def vm_status(self):
+        if self.demo:
+            state = self.demo_vm if self.demo_state == "WINDOWS" else "HOST_UNAVAILABLE"
+            return {"state": state, "checked_at": time.time(), "detail": "Simulated VMware guest."}
+        result = subprocess.run([str(ROOT / "bin" / "pwnbox"), "vm-status"],
+                                capture_output=True, text=True, timeout=50)
+        state = result.stdout.strip()
+        if result.returncode == 2:
+            state = "CONFIG_ERROR"
+        elif state not in VM_STATES:
+            state = "UNKNOWN"
+        return {"state": state, "checked_at": time.time(),
+                "detail": result.stderr.strip()[-500:] if state in ("UNKNOWN", "CONFIG_ERROR", "GUEST_UNREACHABLE") else ""}
 
     def status(self):
         if self.demo:
@@ -181,6 +198,18 @@ class Backend:
             raise ValueError("Unsupported controller action.")
         if self.demo:
             emit("[pwnbox] Desktop: " + self.demo_state)
+            if action in ("vm-start", "vm-stop"):
+                if action == "vm-stop" and self.demo_state != "WINDOWS":
+                    emit("VM shutdown requires Windows; no host boot action sent.")
+                    return 3
+                time.sleep(2)
+                self.demo_state = "WINDOWS"
+                self.demo_vm = "RUNNING" if action == "vm-start" else "STOPPED"
+                emit("Kali VMware " + self.demo_vm + " verified; Windows remains running (demo).")
+                return 0
+            if self.demo_state == "WINDOWS" and self.demo_vm == "RUNNING" and (action in ("off", "kali") or action.startswith("reboot-")):
+                emit("Stop Kali VMware before switching, rebooting or powering off Windows.")
+                return 3
             if action.startswith(("bootnext-", "reboot-")):
                 if self.demo_state not in ("WINDOWS", "KALI"):
                     emit("[pwnbox] Cannot identify a running OS; refusing BootNext/reboot.")
@@ -234,9 +263,10 @@ class ControlCenter:
         self.state = {"state": "UNKNOWN", "checked_at": None, "detail": "Waiting for a status check."}
         self.thinkpad = {}
         self.desktop = {}
+        self.vmware = {"state": "UNKNOWN", "checked_at": None, "detail": "Waiting for VMware check."}
         self.diagnostic = {"time": None, "output": "Run a connectivity check to see results."}
         self.futures = {}
-        self.due = {"local": 0, "status": 0, "metrics": 0, "disk": 0}
+        self.due = {"local": 0, "status": 0, "metrics": 0, "disk": 0, "vmware": 0}
         self.diagnostic_due = 0
         self.thread = threading.Thread(target=self.loop, daemon=True)
         self.thread.start()
@@ -249,6 +279,7 @@ class ControlCenter:
             self.view_until = time.monotonic() + 12
             return copy.deepcopy({"demo": self.backend.demo, "status": self.state, "thinkpad": self.thinkpad,
                                   "desktop": self.desktop, "jobs": self.store.jobs(), "diagnostic": self.diagnostic,
+                                  "vmware": self.vmware,
                                   "diagnostic_running": "diagnostic" in self.futures})
 
     def tick(self):
@@ -270,6 +301,8 @@ class ControlCenter:
                     elif kind == "metrics":
                         if data.get("os") == self.state["state"]:
                             self.desktop.update(data, error=None)
+                    elif kind == "vmware":
+                        self.vmware = data
                     else:
                         self.diagnostic = data
                 except Exception:
@@ -279,6 +312,8 @@ class ControlCenter:
                         elif kind == "status":
                             self.state = {"state": "UNKNOWN", "checked_at": time.time(), "detail": "OS check failed. See Diagnostics."}
                             self.desktop = {}
+                        elif kind == "vmware":
+                            self.vmware = {"state": "UNKNOWN", "checked_at": time.time(), "detail": "VMware check failed. Run pwnbox vm-doctor on ThinkPad."}
                         else:
                             self.diagnostic = {"time": time.time(), "output": "Diagnostics failed or timed out."}
             if now > self.view_until:
@@ -297,6 +332,9 @@ class ControlCenter:
             if now >= self.due["status"] and "status" not in self.futures:
                 self.futures["status"] = self.pool.submit(self.backend.status), self.epoch
                 self.due["status"] = now + 30
+            if now >= self.due["vmware"] and "vmware" not in self.futures:
+                self.futures["vmware"] = self.pool.submit(self.backend.vm_status), self.epoch
+                self.due["vmware"] = now + 30
             state = self.state["state"]
             if state in ("WINDOWS", "KALI") and now >= self.due["metrics"] and "metrics" not in self.futures:
                 disk = now >= self.due["disk"]
@@ -314,7 +352,9 @@ class ControlCenter:
             job_id, new = self.store.submit(action, request_id)
             if new:
                 self.epoch += 1
-                if not action.startswith("bootnext-"):
+                if action.startswith("vm-"):
+                    self.vmware = {"state": "TRANSITIONING", "checked_at": time.time(), "detail": "VM operation in progress."}
+                if not action.startswith("bootnext-") and action != "vm-stop":
                     self.state = {"state": "TRANSITIONING", "checked_at": time.time(), "detail": "Operation in progress."}
                     self.desktop = {}
                 threading.Thread(target=self.run_job, args=(job_id, action), daemon=True).start()
@@ -323,18 +363,24 @@ class ControlCenter:
     def run_job(self, job_id, action):
         code = 5
         verified_state = None
+        vm_result = None
         try:
             code = self.backend.operate(action, lambda message: self.store.event(job_id, message))
             if code == 0 and action.startswith("bootnext-"):
                 verified_state = self.backend.status()
+            if action.startswith("vm-"):
+                verified_state = self.backend.status()
+                vm_result = self.backend.vm_status()
         except Exception:
             self.store.event(job_id, "Cannot run the controller command. Check the service log on the ThinkPad.")
         with self.lock:
             # CLI success includes live verification; no optimistic UI success.
             target = action.removeprefix("reboot-").upper()
-            self.state = verified_state or {"state": ("OFF" if action == "off" else target) if code == 0 and not action.startswith("bootnext-") else "UNKNOWN",
+            self.state = verified_state or {"state": ("OFF" if action == "off" else target) if code == 0 and not action.startswith(("bootnext-", "vm-")) else "UNKNOWN",
                           "checked_at": time.time(), "detail": "" if code == 0 else "The requested state has not been verified."}
             self.epoch += 1
+            self.vmware = vm_result or {"state": "UNKNOWN", "checked_at": None, "detail": "Waiting for a fresh VMware check."}
+            self.due["vmware"] = 0
             self.due["status"] = time.monotonic() + 30 if code == 0 else 0
             self.due["metrics"] = self.due["disk"] = 0
             self.store.finish(job_id, code)
@@ -356,6 +402,7 @@ class Server(ThreadingHTTPServer):
     allow_reuse_address = True
     def __init__(self, address, center, config, handler=None):
         self.center, self.config = center, config
+        self.sites = SitesCatalog(config["public_url"], config.get("sites_registry"), bool(center and center.backend.demo))
         self.slots = threading.BoundedSemaphore(16)
         self.auth_lock = threading.Lock()
         self.login_failures = []
@@ -426,6 +473,8 @@ class Handler(BaseHTTPRequestHandler):
         session = self.authenticated()
         if not session:
             return self.reply(401, {"error": "Please sign in."})
+        if path == "/api/sites":
+            return self.reply(200, self.server.sites.snapshot())
         if path == "/api/session":
             return self.reply(200, {"csrf": session["csrf"], "demo": self.server.center.backend.demo})
         if path == "/api/snapshot":
@@ -547,6 +596,7 @@ def main():
         config = json.loads(args.config.read_text())
         if not config["public_url"].startswith("https://"):
             parser.error("Production requires an HTTPS public_url behind Tailscale Serve.")
+    config["sites_registry"] = str(args.config.with_name("sites.json"))
     center = ControlCenter(args.state_dir, Backend(args.demo))
     server = Server(("127.0.0.1", args.port), center, config)
     shortcut = None

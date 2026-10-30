@@ -8,6 +8,7 @@ bin/pwnbox-diagnostics text eol=lf
 *.css text eol=lf
 *.js text eol=lf
 setup/pwnbox-kali-control text eol=lf
+setup/pwnbox-kali-vm-control text eol=lf
 *.conf.example text eol=lf
 *.md text eol=lf
 *.py text eol=lf

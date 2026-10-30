@@ -88,11 +88,13 @@ class HTTPTests(unittest.TestCase):
 
     def test_auth_and_static_file_allowlist(self):
         self.assertEqual(self.request("/api/snapshot")[0], 401)
+        self.assertEqual(self.request("/api/sites")[0], 401)
         self.assertEqual(self.request("/")[0], 200)
         self.assertEqual(self.request("/thinkpad.svg")[0], 200)
         self.assertEqual(self.request("/desktop.svg")[0], 200)
         self.login()
         self.assertEqual(self.request("/api/snapshot")[0], 200)
+        self.assertEqual(self.request("/api/sites")[0], 200)
         self.assertEqual(self.request("/../../config/pwnbox.conf")[0], 404)
         self.assertEqual(self.request("/web/app.py")[0], 404)
         self.assertEqual(self.request("/api/snapshot", headers={"Host":"evil.example"})[0], 403)
@@ -157,12 +159,43 @@ class HTTPTests(unittest.TestCase):
 
     def test_new_actions_require_confirmation_csrf_and_exact_allowlist(self):
         self.login()
-        for action in ("bootnext-kali", "reboot-windows"):
+        for action in ("bootnext-kali", "reboot-windows", "vm-start", "vm-stop"):
             data = {"action": action, "confirmed": True, "request_id": "request-new-security-123"}
             self.assertEqual(self.request("/api/actions", dict(data, confirmed=False))[0], 400)
             self.assertEqual(self.request("/api/actions", data, {"X-CSRF-Token": "bad"})[0], 403)
             self.assertEqual(self.request("/api/actions", dict(data, action=action + "; off"))[0], 400)
         self.assertEqual(self.backend.calls, [])
+
+    def test_vm_jobs_keep_guest_and_host_state_separate(self):
+        self.login()
+        self.backend.release.set()
+        for i, (action, vm_state) in enumerate((("vm-start", "RUNNING"), ("vm-stop", "STOPPED"))):
+            with patch.object(self.backend, "vm_status", return_value={"state": vm_state, "checked_at": time.time()}):
+                data = {"action": action, "confirmed": True, "request_id": f"vm-request-{i:016}"}
+                self.assertEqual(self.request("/api/actions", data)[0], 202)
+                for _ in range(100):
+                    if not self.center.active():
+                        break
+                    time.sleep(.01)
+                result = self.request("/api/snapshot")[2]
+                self.assertEqual(result["status"]["state"], "WINDOWS")
+                self.assertEqual(result["vmware"]["state"], vm_state)
+                self.assertEqual(result["jobs"][0]["status"], "success")
+                self.assertEqual(self.request("/api/actions", data)[0], 202)
+        self.assertEqual(self.backend.calls, ["vm-start", "vm-stop"])
+
+    def test_vm_failure_does_not_report_windows_powered_off(self):
+        self.login()
+        with patch.object(self.backend, "operate", return_value=5), patch.object(self.backend, "vm_status", return_value={"state": "GUEST_UNREACHABLE", "checked_at": time.time()}):
+            self.assertEqual(self.request("/api/actions", {"action": "vm-stop", "confirmed": True,
+                "request_id": "vm-failure-123456789"})[0], 202)
+            for _ in range(100):
+                if not self.center.active():
+                    break
+                time.sleep(.01)
+            self.assertEqual(self.center.state["state"], "WINDOWS")
+            self.assertEqual(self.center.vmware["state"], "GUEST_UNREACHABLE")
+            self.assertEqual(self.center.store.jobs()[0]["status"], "failed")
 
     def test_failed_operation_never_reports_target_os_ready(self):
         self.login()
@@ -216,6 +249,31 @@ class HTTPTests(unittest.TestCase):
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_demo_vm_start_stop_and_host_guard(self):
+        backend = Backend(demo=True)
+        with patch("app.time.sleep"):
+            backend.demo_state = "KALI"
+            self.assertEqual(backend.operate("vm-start", lambda _: None), 0)
+            self.assertEqual(backend.status()["state"], "WINDOWS")
+            self.assertEqual(backend.vm_status()["state"], "RUNNING")
+            for action in ("off", "kali", "reboot-windows", "reboot-kali"):
+                self.assertEqual(backend.operate(action, lambda _: None), 3)
+            self.assertEqual(backend.operate("vm-stop", lambda _: None), 0)
+            self.assertEqual(backend.status()["state"], "WINDOWS")
+            self.assertEqual(backend.vm_status()["state"], "STOPPED")
+            self.assertEqual(backend.operate("kali", lambda _: None), 0)
+            self.assertEqual(backend.vm_status()["state"], "HOST_UNAVAILABLE")
+            self.assertEqual(backend.operate("vm-stop", lambda _: None), 3)
+
+    def test_vm_profile_errors_are_not_stopped(self):
+        with patch("app.subprocess.run") as run:
+            run.return_value.returncode = 2
+            run.return_value.stdout = ""
+            run.return_value.stderr = "Use a separate VM automation key."
+            result = Backend().vm_status()
+            self.assertEqual(result["state"], "CONFIG_ERROR")
+            self.assertIn("separate", result["detail"])
+
     def test_demo_bootnext_does_not_change_os_and_reboot_can_stay_in_kali(self):
         backend = Backend(demo=True)
         events = []

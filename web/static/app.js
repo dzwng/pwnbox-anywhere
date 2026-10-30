@@ -3,14 +3,42 @@ const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon = name => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const fmt = new Intl.NumberFormat('en-GB', {maximumFractionDigits:1});
-const actions = {windows:'Start Windows', kali:'Start Kali', off:'Power off'};
+const actions = {windows:'Start Windows', kali:'Start Kali dual boot', off:'Power off desktop', 'vm-start':'Start Kali VMware', 'vm-stop':'Stop Kali VMware'};
 for (const os of ['windows', 'kali']) {
-  actions[`bootnext-${os}`] = `Set BootNext to ${os === 'kali' ? 'Kali Linux' : 'Windows 11'}`;
-  actions[`reboot-${os}`] = `Reboot into ${os === 'kali' ? 'Kali Linux' : 'Windows 11'}`;
+  actions[`bootnext-${os}`] = `Set BootNext to ${os === 'kali' ? 'Kali dual boot' : 'Windows 11'}`;
+  actions[`reboot-${os}`] = `Reboot into ${os === 'kali' ? 'Kali dual boot' : 'Windows 11'}`;
 }
-const actionIcon = action => action.startsWith('reboot-') ? 'refresh' : action.startsWith('bootnext-') ? 'arrow' : action === 'off' ? 'power' : action;
-const states = {WINDOWS:'Windows 11', KALI:'Kali Linux', UNKNOWN:'Unknown', OFF:'Powered off · inferred', TRANSITIONING:'In progress…'};
+const actionIcon = action => action.startsWith('vm-') ? (action === 'vm-stop' ? 'power' : 'kali') : action.startsWith('reboot-') ? 'refresh' : action.startsWith('bootnext-') ? 'arrow' : action === 'off' ? 'power' : action;
+const vmStates = {DISABLED:'Not configured',CONFIG_ERROR:'Configuration error',UNKNOWN:'Unverified',HOST_UNAVAILABLE:'Windows host not running',STOPPED:'Stopped',GUEST_UNREACHABLE:'VM powered on · SSH unverified',RUNNING:'Running · guest SSH verified',TRANSITIONING:'In progress…'};
+const states = {WINDOWS:'Windows 11', KALI:'Kali dual boot', UNKNOWN:'Unknown', OFF:'Powered off · inferred', TRANSITIONING:'In progress…'};
 let csrf = '', snapshot = null, timer = null, polling = false, pending = null, view = 'overview', diagnosticPending = false;
+
+let sitesDue = 0;
+
+async function pollSites() {
+  if (Date.now() < sitesDue) return;
+  sitesDue = Date.now() + 60000;
+  try {
+    const data = await api('/api/sites');
+    $('hosted-sites').replaceChildren();
+    for (const site of data.sites) {
+      const url = new URL(site.url);
+      if (url.protocol !== 'https:' || url.username || url.password || !url.hostname.endsWith('.ts.net')) continue;
+      const link = document.createElement('a');
+      link.className = 'card hosted-site'; link.href = url.href; link.target = '_blank'; link.rel = 'noopener noreferrer';
+      const title = document.createElement('h3'); title.textContent = site.name;
+      const description = document.createElement('p'); description.textContent = site.description;
+      const address = document.createElement('small'); address.textContent = url.host + url.pathname;
+      const state = document.createElement('span'); state.className = 'site-state';
+      state.textContent = site.public ? 'Public · Open website ↗' : 'Tailscale · Open website ↗';
+      link.append(title, description, address, state); $('hosted-sites').append(link);
+    }
+    if (!$('hosted-sites').childElementCount) $('hosted-sites').textContent = data.error || 'No other HTTPS websites configured on ThinkPad.';
+    $('sites-note').textContent = data.error || 'Configured Tailscale Serve websites · refreshed every minute. Availability depends on each website.';
+  } catch {
+    $('sites-note').textContent = 'Website list unavailable. Retrying in one minute.';
+  }
+}
 
 async function api(path, data) {
   const response = await fetch(path, {method:data === undefined ? 'GET':'POST', credentials:'same-origin',
@@ -24,7 +52,7 @@ async function api(path, data) {
   return result;
 }
 
-function showLogin() { clearTimeout(timer); csrf = ''; $('shell').hidden = true; $('login').hidden = false; }
+function showLogin() { clearTimeout(timer); csrf = ''; sitesDue = 0; $('shell').hidden = true; $('login').hidden = false; }
 function toast(message) { $('toast').textContent = message; $('toast').hidden = false; setTimeout(() => $('toast').hidden = true, 5000); }
 function percent(value) { return typeof value === 'number' && Number.isFinite(value) ? `${fmt.format(value)}%` : 'No data'; }
 function bytes(value) { return typeof value === 'number' && Number.isFinite(value) ? `${fmt.format(value / 1024 ** 3)} GiB` : '—'; }
@@ -92,6 +120,22 @@ function render() {
     button.disabled = !!job || (['off', 'bootnext', 'reboot'].includes(button.dataset.action) && !known) || (button.dataset.action.toUpperCase() === status.state);
     button.title = button.dataset.action.toUpperCase() === status.state ? 'Already running this OS' : '';
   });
+  const vm = snapshot.vmware || {state:'UNKNOWN'};
+  const vmFresh = vm.checked_at && Date.now()/1000 - vm.checked_at < 75;
+  const vmState = vmFresh || vm.state === 'TRANSITIONING' ? vm.state : 'UNKNOWN';
+  const vmEnabled = vmFresh && !['DISABLED','CONFIG_ERROR'].includes(vm.state);
+  $('vmware-status').textContent = vmStates[vmState] || vmStates.UNKNOWN;
+  $('vmware-age').textContent = age(vm.checked_at);
+  $('vmware-detail').textContent = vm.detail || (vm.state === 'DISABLED' ? 'Complete the VMware setup on Windows, the VM and ThinkPad to enable these controls.' : vm.state === 'GUEST_UNREACHABLE' ? 'Check kali-vmware SSH, its separate key and host fingerprint. Stop cleanly from VMware console if SSH cannot be restored.' : 'Separate guest on Windows. Guest controls never shut down Windows.');
+  const guestBlocksHost = vmEnabled && status.state === 'WINDOWS' && vmState !== 'STOPPED';
+  document.querySelectorAll('[data-action]').forEach(button => {
+    if (button.dataset.action === 'vm-start') button.disabled = !!job || !vmEnabled || vmState === 'RUNNING';
+    if (button.dataset.action === 'vm-stop') button.disabled = !!job || !vmEnabled || status.state !== 'WINDOWS' || vmState !== 'RUNNING';
+    if (guestBlocksHost && ['kali','off','reboot'].includes(button.dataset.action)) {
+      button.disabled = true; button.title = 'Stop Kali VMware and verify it is stopped first';
+    }
+  });
+  $('vmware-host-warning').hidden = !guestBlocksHost;
   $('bootnext-os').disabled = !!job;
   $('operation').hidden = !job;
   if (job) $('operation').innerHTML = `<div class="operation-title"><div class="operation-heading"><span class="operation-icon">${icon(actionIcon(job.action))}</span><div><span class="eyebrow">OPERATION IN PROGRESS</span><h3>${esc(actions[job.action])}</h3></div></div><span class="spinner" aria-label="Processing"></span></div><p>Your controller is processing and verifying this request.</p><div class="operation-events">${job.events.slice(-5).map(e => `<div><span class="event-marker"></span><span>${esc(explain(e.message))}</span><time>${esc(time(e.time))}</time></div>`).join('') || '<div>Request accepted. Preparing to check the desktop…</div>'}</div><div class="operation-footnote">${icon('shield')}You can close or reload this page. The operation continues on your ThinkPad.</div>`;
@@ -111,6 +155,7 @@ async function poll() {
   polling = true;
   try {
     snapshot = await api('/api/snapshot'); render();
+    await pollSites();
     $('connection-error').hidden = true; document.body.classList.remove('connection-bad');
     $('connection-label').textContent = 'Live updates';
   } catch (error) {
@@ -136,11 +181,12 @@ document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click'
 document.querySelectorAll('[data-action]').forEach(button => button.addEventListener('click', () => {
   const kind = button.dataset.action;
   const action = ['bootnext', 'reboot'].includes(kind) ? `${kind}-${$('bootnext-os').value}` : kind;
-  const target = action.split('-').pop();
-  const targetName = target === 'kali' ? 'Kali Linux' : 'Windows 11';
+  const isVm = action.startsWith('vm-');
+  const target = isVm ? 'kali' : action.split('-').pop();
+  const targetName = isVm ? (action === 'vm-stop' ? 'Kali VMware stopped' : 'Windows + Kali VMware') : target === 'kali' ? 'Kali dual boot' : 'Windows 11';
   pending = {action, request_id:crypto.randomUUID(), confirmed:true};
   $('confirm-title').textContent = actions[action];
-  $('confirm-description').textContent = kind === 'bootnext' ? `Set the next boot to ${targetName}. The desktop keeps running; this choice is used once.` : kind === 'reboot' ? `Set BootNext to ${targetName}, then restart the running desktop directly into that OS.` : action === 'off' ? 'Shut down your desktop through the running OS. Your ThinkPad stays online.' : `Start your desktop in ${targetName}. An offline desktop will be woken; switching from another OS requires a reboot.`;
+  $('confirm-description').textContent = action === 'vm-start' ? 'Start the separate Kali VMware guest on Windows. If needed, wake the desktop and switch from Kali dual boot to Windows, closing bare-metal applications. Windows must have an interactive user logged in.' : action === 'vm-stop' ? 'Shut down only Kali VMware cleanly. Guest applications will close; Windows and ThinkPad stay online.' : kind === 'bootnext' ? `Set the next boot to ${targetName}. The desktop keeps running; this choice is used once.` : kind === 'reboot' ? `Set BootNext to ${targetName}, then restart the running desktop directly into that OS.` : action === 'off' ? 'Shut down your desktop through the running OS. Your ThinkPad stays online.' : `Start your desktop in ${targetName}. An offline desktop will be woken; switching from another OS requires a reboot.`;
   $('confirm-icon').innerHTML = icon(actionIcon(action));
   $('confirm-icon').className = `confirm-icon ${target}`;
   const current = snapshot?.status.state || 'UNKNOWN';

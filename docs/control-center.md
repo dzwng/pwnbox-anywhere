@@ -10,6 +10,17 @@ reload trang sẽ chọn Windows lại. BootNext chỉ dùng một lần; BootOr
 Hai thao tác mới chỉ dùng khi Windows/Kali đang được xác minh qua SSH.
 Terminal, VNC trong web, HTB VPN, file manager và quản lý tiến trình chưa nằm trong bản này.
 
+Thẻ **Kali VMware** có trạng thái guest và Start / Stop VM only riêng; nút Kali của
+desktop được ghi rõ **Kali dual boot**. VMware không nằm trong BootNext vì guest cần
+Windows host đang chạy. Profile chưa setup thì thẻ hiện Not configured, nút guest tắt.
+Theo [runbook VMware](vmware.md) để phục hồi task cũ, cài endpoint/key guest và cập nhật
+Mac. Metrics desktop vẫn là host; guest status kiểm tra riêng mỗi khoảng 30 giây.
+Host shutdown/reboot/switch bị chặn khi profile VM bật mà guest chưa xác minh đã dừng.
+Mục Websites on ThinkPad từ gói course cũ được giữ: `/api/sites` cần đăng nhập,
+đọc các HTTPS route trên hostname Serve của ThinkPad và nhãn ở file `sites.json`
+cùng thư mục `web.json`. Chỉ đọc/cached 60 giây; cập nhật dashboard không đổi các route
+hay nội dung website. Link mở tab riêng, không nhúng website vào dashboard.
+
 ## Phạm vi và vận hành
 
 - Trạng thái OS do controller xác minh qua SSH. `UNKNOWN` không đồng nghĩa OFF.

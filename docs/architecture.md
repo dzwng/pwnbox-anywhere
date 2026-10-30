@@ -50,3 +50,17 @@ bằng chứng vật lý. Lần khởi động controller đầu tiên khi deskt
 CLI chạy bằng user Debian, không chạy toàn bộ controller bằng root. Key Windows hiện
 dùng account administrator để bcdedit chạy được; quyền này rộng hơn endpoint Kali.
 Không dùng agent forwarding. Restrict key Windows hơn nữa là cải tiến riêng sau LAN test.
+
+## Guest VMware tùy chọn
+
+`lib/vmware.sh` đọc profile `vmware.conf` riêng; không thay `KALI_HOST`/marker detection
+dual boot. Windows chạy guest qua Scheduled Task interactive. Inventory phải chứa
+đúng VMX và SSH guest phải trả `PWNBOX_KALI_VM` mới báo RUNNING. STOPPED yêu cầu Windows
+đã xác minh và inventory hợp lệ; mất SSH guest không đủ để suy luận nguồn guest.
+Guest endpoint chỉ nhận status/off, không có EFI hay quyền reboot Windows.
+
+VM start/stop dùng cùng `operation.lock` và queue SQLite với lệnh host. Khi profile
+VM bật, Windows shutdown/reboot/chuyển Kali bị chặn nếu guest chưa xác minh STOPPED.
+Không tự hard stop hoặc replay task. `vm-start` có thể chuyển từ bare metal về Windows;
+`vm-stop` không bật/chuyển OS host. Mac giữ identity, socket và local port VM riêng.
+Chi tiết cài và giới hạn kiểm thử: [VMware](vmware.md).
