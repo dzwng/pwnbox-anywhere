@@ -12,11 +12,12 @@ state = state_file.read_text().strip()
 log = root / 'actions'
 order_file = root / 'boot-order'
 order = order_file.read_text().strip().split(',')
+linux = os.environ.get('MOCK_LINUX_OS', 'KALI')
 
 def firmware(os_name):
     if os.environ.get('MOCK_FIRMWARE_UNAVAILABLE'):
         sys.exit(5)
-    ids = {'WINDOWS': '{bootmgr}', 'KALI': '{00000000-0000-0000-0000-000000000000}'} if os_name == 'WINDOWS' else {'WINDOWS': '0000', 'KALI': '0002'}
+    ids = {'WINDOWS': '{bootmgr}', linux: '{00000000-0000-0000-0000-000000000000}'} if os_name == 'WINDOWS' else {'WINDOWS': '0000', linux: '0002'}
     print('PWNBOX_BOOT_ORDER=' + ','.join(ids[name] for name in order))
     print('PWNBOX_WINDOWS_FIRST=' + str(order[0] == 'WINDOWS').lower())
 
@@ -38,13 +39,13 @@ if tool == 'python3':
         if state == 'OFF' and not os.environ.get('MOCK_WOL_FAIL'):
             transition('WINDOWS')
         sys.exit(0)
-    sys.exit(0 if state in ('WINDOWS', 'KALI', 'ALIVE') else 1)
+    sys.exit(0 if state in ('WINDOWS', linux, 'ALIVE') else 1)
 
 if tool == 'ping':
     host = args[-1]
     if host == '192.0.2.1':
         sys.exit(1 if os.environ.get('MOCK_LAN_DOWN') else 0)
-    sys.exit(0 if state in ('WINDOWS', 'KALI', 'ALIVE') else 1)
+    sys.exit(0 if state in ('WINDOWS', linux, 'ALIVE') else 1)
 
 assert tool == 'ssh'
 command = args[-1]
@@ -62,14 +63,14 @@ if 'HostKeyAlias=pwnbox-control-kali-vm' in args:
     else:
         raise AssertionError('Unexpected VM guest command')
     sys.exit(0)
-os_name = 'WINDOWS' if 'HostKeyAlias=pwnbox-control-windows' in args else 'KALI'
+os_name = next(name for name in ('WINDOWS', linux) if f'HostKeyAlias=pwnbox-control-{name.lower()}' in args)
 if os.environ.get('MOCK_TRACE'):
     with (root / 'trace').open('a') as stream:
         stream.write(f'{os_name} state={state} bytes={len(command)}\n')
 if state.startswith('TRANSITION:'):
     state_file.write_text(state.split(':', 1)[1])
     if os.environ.get('MOCK_ORDER_CHANGE_ON_BOOT'):
-        order_file.write_text('KALI,WINDOWS')
+        order_file.write_text(f'{linux},WINDOWS')
     sys.exit(255)  # At least one unreachable observation during a reboot.
 if os.environ.get('MOCK_HUNG'):
     time.sleep(10)
@@ -99,9 +100,9 @@ if os_name == 'WINDOWS':
     # Check safety properties of the generated command, not only its outcome.
     assert '/f' not in command
     if 'bcdedit' in command:
-        target = 'WINDOWS' if "bootsequence '{bootmgr}'" in command else 'KALI'
+        target = 'WINDOWS' if "bootsequence '{bootmgr}'" in command else linux
         assert "'{fwbootmgr}' bootsequence " in command
-        if target == 'KALI':
+        if target == linux:
             assert "bootsequence '{00000000-0000-0000-0000-000000000000}'" in command
         reboot = 'shutdown.exe' in command
         if reboot:
@@ -113,8 +114,8 @@ if os_name == 'WINDOWS':
             assert command.index('if ($before -ne $after)') < command.index('shutdown.exe')
         print('PWNBOX_BOOT_ORDER_BEFORE=' + ','.join(order))
         if os.environ.get('MOCK_ORDER_CHANGE_ON_SET'):
-            order_file.write_text('KALI,WINDOWS')
-            print('PWNBOX_BOOT_ORDER_AFTER_SET=KALI,WINDOWS')
+            order_file.write_text(f'{linux},WINDOWS')
+            print(f'PWNBOX_BOOT_ORDER_AFTER_SET={linux},WINDOWS')
             sys.exit(5)
         if os.environ.get('MOCK_ACTION_FAIL'):
             print('bcdedit failed', file=sys.stderr)
@@ -127,13 +128,13 @@ if os_name == 'WINDOWS':
         state_file.write_text('OFF')
 else:
     if command == 'status':
-        print('PWNBOX_KALI')
+        print('PWNBOX_' + os.environ.get('MOCK_LINUX_MARKER', linux))
         sys.exit(0)
     if command == 'firmware':
-        firmware('KALI')
+        firmware(linux)
         sys.exit(0)
-    assert command in ('windows', 'off', 'bootnext-windows', 'bootnext-kali', 'reboot-windows', 'reboot-kali')
-    record('kali->' + command)
+    assert command in ('windows', 'off', 'bootnext-windows', f'bootnext-{linux.lower()}', 'reboot-windows', f'reboot-{linux.lower()}')
+    record(linux.lower() + '->' + command)
     if os.environ.get('MOCK_ACTION_FAIL'):
         sys.exit(5)
     if command.startswith('bootnext-'):

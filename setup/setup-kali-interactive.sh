@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Add the Mac public key as the current Kali user's ordinary interactive SSH key.
+# Add the Mac public key as the current desktop user's ordinary interactive SSH key.
 set -Eeuo pipefail
-[[ $EUID != 0 ]] || { echo 'Run as your Kali user, without sudo.' >&2; exit 2; }
+[[ $EUID != 0 ]] || { echo 'Run as your Linux user, without sudo.' >&2; exit 2; }
 source /etc/os-release
-[[ $ID == kali ]] || { echo 'Run this on Kali bare-metal.' >&2; exit 2; }
+[[ $ID == kali || $ID == ubuntu ]] || { echo 'Run this on Kali or Ubuntu.' >&2; exit 2; }
 [[ $# == 1 && -r $1 ]] || { echo 'Usage: setup-kali-interactive.sh /path/mac-key.pub' >&2; exit 2; }
 key=$(cat -- "$1")
 key=${key%$'\r'}

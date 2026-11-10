@@ -5,8 +5,8 @@ probe_os() {
         output=$(windows_ps "if ([Environment]::OSVersion.Platform -ne 'Win32NT') { exit 1 }; Write-Output 'PWNBOX_WINDOWS'" 2>"$STATE_DIR/probe-windows.err") || return 1
         [[ ${output//$'\r'/} == PWNBOX_WINDOWS ]]
     else
-        output=$(ssh_control KALI status 2>"$STATE_DIR/probe-kali.err") || return 1
-        [[ ${output//$'\r'/} == PWNBOX_KALI ]]
+        output=$(ssh_control "$LINUX_STATE" status 2>"$STATE_DIR/probe-kali.err") || return 1
+        [[ ${output//$'\r'/} == "PWNBOX_$LINUX_STATE" ]]
     fi
 }
 host_alive() {
@@ -27,12 +27,12 @@ lan_healthy() {
     [[ -n $LAN_HEALTH_HOST ]] && command -v ping >/dev/null && timeout 2 ping -n -c 1 -W 1 "$LAN_HEALTH_HOST" >/dev/null 2>&1
 }
 detect_state() {
-    local windows=false kali=false
+    local windows=false linux=false
     probe_os WINDOWS && windows=true
-    probe_os KALI && kali=true
-    if $windows && $kali; then STATE=UNKNOWN; log 'Both OS endpoints responded; check host configuration.'
+    probe_os "$LINUX_STATE" && linux=true
+    if $windows && $linux; then STATE=UNKNOWN; log 'Both OS endpoints responded; check host configuration.'
     elif $windows; then STATE=WINDOWS
-    elif $kali; then STATE=KALI
+    elif $linux; then STATE=$LINUX_STATE
     else
         read_state
         STATE=UNKNOWN
@@ -49,7 +49,7 @@ wait_ready() {
     log "Waiting for $target (timeout ${duration}s)..."
     while (( $(now) < deadline )); do
         detect_state
-        if [[ $STATE == WINDOWS || $STATE == KALI ]]; then
+        if [[ $STATE == WINDOWS || $STATE == "$LINUX_STATE" ]]; then
             if [[ $target == ANY || $STATE == "$target" ]]; then
                 save_state "$STATE" NONE 0
                 IN_OPERATION=false
@@ -59,7 +59,7 @@ wait_ready() {
         fi
         if $retry_wol && (( attempts < WOL_ATTEMPTS && $(now) >= next_wol )); then
             # Do not repeat WoL when an OS is positively identified.
-            if [[ $STATE != WINDOWS && $STATE != KALI ]]; then send_wol; fi
+            if [[ $STATE != WINDOWS && $STATE != "$LINUX_STATE" ]]; then send_wol; fi
             attempts=$((attempts + 1)); next_wol=$(( $(now) + WOL_RETRY_INTERVAL ))
         fi
         sleep "$POLL_INTERVAL"

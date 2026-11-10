@@ -76,16 +76,16 @@ if [[ $MODE == --check ]]; then
 fi
 step windows-idempotent windows WINDOWS
 step wake-while-windows wake WINDOWS
-step windows-to-kali kali KALI
-step kali-idempotent kali KALI
-step wake-while-kali wake KALI
-step kali-to-windows windows WINDOWS
+step "windows-to-$LINUX_OS" "$LINUX_OS" "$LINUX_STATE"
+step "$LINUX_OS-idempotent" "$LINUX_OS" "$LINUX_STATE"
+step "wake-while-$LINUX_OS" wake "$LINUX_STATE"
+step "$LINUX_OS-to-windows" windows WINDOWS
 step windows-to-off off OFF
 step off-idempotent off OFF
 step off-to-windows windows WINDOWS
 step windows-to-off-again off OFF
-step off-to-kali kali KALI
-step kali-to-off off OFF
+step "off-to-$LINUX_OS" "$LINUX_OS" "$LINUX_STATE"
+step "$LINUX_OS-to-off" off OFF
 step wake-default-windows wake WINDOWS
 STEP=firmware-after
 firmware_snapshot "$RUN_DIR/firmware-after.txt"

@@ -82,4 +82,15 @@ export SSH_ORIGINAL_COMMAND='reboot-kali; off'
 run 2; actions ''
 export SSH_ORIGINAL_COMMAND=status
 run 0; actions ''; [[ $(cat "$work/out") == PWNBOX_KALI ]]
-echo "PASS: $count Kali endpoint checks; no actual firmware, sudo or reboot."
+printf 'ID=ubuntu\n' > "$work/os-release"
+printf '0002\n' > "$work/pwnbox/ubuntu-boot-id"
+run 0; actions ''; [[ $(cat "$work/out") == PWNBOX_UBUNTU ]]
+export SSH_ORIGINAL_COMMAND=reboot-kali
+run 2; actions ''
+export SSH_ORIGINAL_COMMAND=reboot-ubuntu
+run 0; actions 'sudo:reboot-ubuntu'
+unset MOCK_EUID
+run 0 bootnext-ubuntu; actions 'bootnext:0002'
+run 0 reboot-ubuntu; actions $'bootnext:0002\nreboot'
+run 2 reboot-kali; actions ''
+echo "PASS: $count Linux endpoint checks; no actual firmware, sudo or reboot."

@@ -64,7 +64,7 @@ vm_status() {
     VM_STATE=DISABLED
     $VM_ENABLED || return 0
     VM_STATE=UNKNOWN
-    if [[ $STATE == KALI || $STATE == OFF ]]; then VM_STATE=HOST_UNAVAILABLE; return 0; fi
+    if [[ $STATE == "$LINUX_STATE" || $STATE == OFF ]]; then VM_STATE=HOST_UNAVAILABLE; return 0; fi
     [[ $STATE == WINDOWS ]] || return 0
     : > "$STATE_DIR/probe-vm.err"
     vm_inventory || return 0

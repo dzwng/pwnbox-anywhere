@@ -53,7 +53,7 @@ export PWNBOX_CONFIG=$work/config
 count=0
 reset() {
     printf '%s' "$1" > "$work/desktop"
-    printf 'WINDOWS,KALI' > "$work/boot-order"
+    printf 'WINDOWS,%s' "${MOCK_LINUX_OS:-KALI}" > "$work/boot-order"
     : > "$work/actions"
     rm -f -- "$work/state/"state-*
     unset MOCK_ACTION_FAIL MOCK_DISCONNECT MOCK_HUNG MOCK_WOL_FAIL MOCK_LAN_DOWN MOCK_LOCKED MOCK_NO_REBOOT MOCK_NO_ACK MOCK_ORDER_CHANGE_ON_SET MOCK_ORDER_CHANGE_ON_BOOT MOCK_FIRMWARE_UNAVAILABLE
@@ -149,4 +149,16 @@ if [[ -n $native_flock ]]; then
 else
     export MOCK_LOCKED=1; run 6 kali; actions ''
 fi
+printf 'LINUX_OS=ubuntu\n' >> "$work/config"
+export MOCK_LINUX_OS=UBUNTU
+reset UBUNTU; run 0 status-web; [[ $(cat "$work/out") == 'UBUNTU ubuntu' ]]
+export MOCK_LINUX_MARKER=KALI
+run 3 status; [[ $(cat "$work/out") == UNKNOWN ]]
+unset MOCK_LINUX_MARKER
+run 2 kali; actions ''
+reset OFF; run 0 ubuntu; actions $'wake\nwindows->ubuntu'
+reset WINDOWS; run 0 bootnext-ubuntu; actions 'windows->bootnext-ubuntu'
+reset UBUNTU; run 0 reboot-ubuntu; actions 'ubuntu->reboot-ubuntu'
+reset UBUNTU; run 0 windows; actions 'ubuntu->windows'
+reset UBUNTU; run 0 off; actions 'ubuntu->off'
 printf 'PASS: %s command checks; no real SSH, firmware, shutdown or WoL.\n' "$count"

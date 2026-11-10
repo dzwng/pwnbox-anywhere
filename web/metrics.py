@@ -111,12 +111,13 @@ class LinuxMetrics:
 if __name__ == "__main__":
     # Endpoint verifies its own OS. The controller never trusts an unmarked payload.
     release = Path("/etc/os-release").read_text()
-    if not any(line in ('ID=kali', 'ID="kali"') for line in release.splitlines()):
-        raise SystemExit("Requires Kali")
+    os_id = next((line[3:].strip('"') for line in release.splitlines() if line.startswith("ID=")), "")
+    if os_id not in ("kali", "ubuntu"):
+        raise SystemExit("Requires Kali or Ubuntu")
     collector = LinuxMetrics()
     # First CPU measurement needs two observations, not lifetime average.
     collector.sample(health=False, disk=False)
     time.sleep(0.15)
     data = collector.sample(health=False, disk='--fast' not in sys.argv)
-    data.update(collector.gpu(), os="KALI")
+    data.update(collector.gpu(), os=os_id.upper())
     print(json.dumps(data, allow_nan=False))

@@ -11,7 +11,7 @@ for option in ("BatchMode=yes", "IdentitiesOnly=yes", "StrictHostKeyChecking=yes
                "HostKeyAlias=pwnbox-control-" + target.lower(), "ControlMaster=auto", "ControlPersist=15s"):
     assert option in args, option
 assert any("/metrics-" + target.lower() + "-" in x and x.endswith(".sock") for x in args)
-if target == "KALI":
+if target != "WINDOWS":
     assert args[-1] == ("metrics" if mode == "disk" else "metrics-fast")
 else:
     assert len(args[-1]) < 8000, 'Windows cmd.exe command length limit'

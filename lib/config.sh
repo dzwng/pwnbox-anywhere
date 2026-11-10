@@ -3,6 +3,7 @@ load_config() {
     PWNBOX_CONFIG=${PWNBOX_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/pwnbox/pwnbox.conf}
     [[ -r $PWNBOX_CONFIG ]] || fail 2 "Missing config: $PWNBOX_CONFIG (copy config/pwnbox.conf.example)."
     WINDOWS_SSH_PORT=22 KALI_SSH_PORT=22 WINDOWS_BOOT_ID=0000 KALI_BOOT_ID=0002
+    LINUX_OS=kali
     CONNECT_TIMEOUT=3 PROBE_TIMEOUT=8 POLL_INTERVAL=3 WAKE_TIMEOUT=180 BOOT_TIMEOUT=240
     SHUTDOWN_TIMEOUT=120 WOL_ATTEMPTS=3 WOL_RETRY_INTERVAL=20 OFF_SAMPLES=3 OFF_CACHE_TTL=300
     WOL_BROADCAST=255.255.255.255 WOL_PORT=9 LAN_HEALTH_HOST=
@@ -16,10 +17,12 @@ load_config() {
         [[ $line =~ ^([A-Z_]+)=(.*)$ ]] || fail 2 "Invalid config line $number; use KEY=value without shell quoting."
         key=${BASH_REMATCH[1]} value=${BASH_REMATCH[2]}
         case "$key" in
-            DESKTOP_MAC|WINDOWS_HOST|KALI_HOST|WINDOWS_USER|KALI_USER|WINDOWS_SSH_PORT|KALI_SSH_PORT|WINDOWS_BOOT_ID|KALI_BOOT_ID|KALI_WINDOWS_BCD_GUID|WINDOWS_IDENTITY_FILE|KALI_IDENTITY_FILE|KNOWN_HOSTS_FILE|CONNECT_TIMEOUT|PROBE_TIMEOUT|POLL_INTERVAL|WAKE_TIMEOUT|BOOT_TIMEOUT|SHUTDOWN_TIMEOUT|WOL_ATTEMPTS|WOL_RETRY_INTERVAL|WOL_BROADCAST|WOL_PORT|LAN_HEALTH_HOST|OFF_SAMPLES|OFF_CACHE_TTL) printf -v "$key" '%s' "$value";;
+            LINUX_OS|DESKTOP_MAC|WINDOWS_HOST|KALI_HOST|WINDOWS_USER|KALI_USER|WINDOWS_SSH_PORT|KALI_SSH_PORT|WINDOWS_BOOT_ID|KALI_BOOT_ID|KALI_WINDOWS_BCD_GUID|WINDOWS_IDENTITY_FILE|KALI_IDENTITY_FILE|KNOWN_HOSTS_FILE|CONNECT_TIMEOUT|PROBE_TIMEOUT|POLL_INTERVAL|WAKE_TIMEOUT|BOOT_TIMEOUT|SHUTDOWN_TIMEOUT|WOL_ATTEMPTS|WOL_RETRY_INTERVAL|WOL_BROADCAST|WOL_PORT|LAN_HEALTH_HOST|OFF_SAMPLES|OFF_CACHE_TTL) printf -v "$key" '%s' "$value";;
             *) fail 2 "Unknown config key: $key";;
         esac
     done < "$PWNBOX_CONFIG"
+    [[ $LINUX_OS == kali || $LINUX_OS == ubuntu ]] || fail 2 'LINUX_OS must be kali or ubuntu.'
+    LINUX_STATE=${LINUX_OS^^}
     for key in DESKTOP_MAC WINDOWS_HOST KALI_HOST WINDOWS_USER KALI_USER KALI_WINDOWS_BCD_GUID; do
         [[ -n ${!key-} ]] || fail 2 "Missing config value: $key"
     done
@@ -34,7 +37,7 @@ load_config() {
     for key in WINDOWS_BOOT_ID KALI_BOOT_ID; do
         [[ ${!key} =~ ^[[:xdigit:]]{4}$ ]] || fail 2 "Invalid $key."
     done
-    [[ $KALI_WINDOWS_BCD_GUID =~ ^\{[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}\}$ ]] || fail 2 'Invalid Kali firmware GUID.'
+    [[ $KALI_WINDOWS_BCD_GUID =~ ^\{[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}\}$ ]] || fail 2 "Invalid $LINUX_OS firmware GUID (KALI_WINDOWS_BCD_GUID)."
     for key in WINDOWS_SSH_PORT KALI_SSH_PORT CONNECT_TIMEOUT PROBE_TIMEOUT POLL_INTERVAL WAKE_TIMEOUT BOOT_TIMEOUT SHUTDOWN_TIMEOUT WOL_ATTEMPTS WOL_RETRY_INTERVAL WOL_PORT OFF_SAMPLES OFF_CACHE_TTL; do
         value=${!key}
         [[ $value =~ ^[1-9][0-9]{0,4}$ ]] || fail 2 "Invalid positive integer: $key"

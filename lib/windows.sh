@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-windows_kali() {
-    windows_reboot KALI
+windows_linux() {
+    windows_reboot "$LINUX_STATE"
 }
 windows_off() {
     log 'Requesting clean Windows shutdown...'
@@ -8,7 +8,7 @@ windows_off() {
 }
 windows_boot_command() {
     local target=$1 guid
-    if [[ $target == KALI ]]; then guid=$KALI_WINDOWS_BCD_GUID; else guid='{bootmgr}'; fi
+    if [[ $target == "$LINUX_STATE" ]]; then guid=$KALI_WINDOWS_BCD_GUID; else guid='{bootmgr}'; fi
     windows_firmware_code
     printf '%s' "\$ErrorActionPreference = 'Stop'; \$before = Get-PwnboxBootOrder; Write-Output ('PWNBOX_BOOT_ORDER_BEFORE=' + \$before); & bcdedit.exe /set '{fwbootmgr}' bootsequence '$guid'; if (\$LASTEXITCODE -ne 0) { exit 5 }; \$after = Get-PwnboxBootOrder; Write-Output ('PWNBOX_BOOT_ORDER_AFTER_SET=' + \$after); if (\$before -ne \$after) { Write-Error -ErrorAction Continue 'Firmware BootOrder changed while setting BootNext; reboot cancelled.'; exit 5 }; "
 }

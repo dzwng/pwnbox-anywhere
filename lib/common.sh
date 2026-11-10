@@ -63,7 +63,7 @@ remote_action() {
     if [[ $os == WINDOWS ]]; then
         output=$(windows_ps "$command" 2>"$STATE_DIR/action.err") || rc=$?
     else
-        output=$(ssh_control KALI "$command" 2>"$STATE_DIR/action.err") || rc=$?
+        output=$(ssh_control "$os" "$command" 2>"$STATE_DIR/action.err") || rc=$?
     fi
     # Keep firmware evidence even when the endpoint refuses to reboot.
     local line

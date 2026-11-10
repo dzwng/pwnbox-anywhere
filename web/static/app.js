@@ -3,14 +3,16 @@ const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon = name => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const fmt = new Intl.NumberFormat('en-GB', {maximumFractionDigits:1});
-const actions = {windows:'Start Windows', kali:'Start Kali dual boot', off:'Power off desktop', 'vm-start':'Start Kali VMware', 'vm-stop':'Stop Kali VMware'};
-for (const os of ['windows', 'kali']) {
-  actions[`bootnext-${os}`] = `Set BootNext to ${os === 'kali' ? 'Kali dual boot' : 'Windows 11'}`;
-  actions[`reboot-${os}`] = `Reboot into ${os === 'kali' ? 'Kali dual boot' : 'Windows 11'}`;
+const states = {WINDOWS:'Windows 11', KALI:'Kali dual boot', UBUNTU:'Ubuntu dual boot', UNKNOWN:'Unknown', OFF:'Powered off · inferred', TRANSITIONING:'In progress…'};
+const actions = {windows:'Start Windows', kali:'Start Kali dual boot', ubuntu:'Start Ubuntu dual boot', off:'Power off desktop', 'vm-start':'Start Kali VMware', 'vm-stop':'Stop Kali VMware'};
+for (const os of ['windows', 'kali', 'ubuntu']) {
+  actions[`bootnext-${os}`] = `Set BootNext to ${states[os.toUpperCase()]}`;
+  actions[`reboot-${os}`] = `Reboot into ${states[os.toUpperCase()]}`;
 }
 const actionIcon = action => action.startsWith('vm-') ? (action === 'vm-stop' ? 'power' : 'kali') : action.startsWith('reboot-') ? 'refresh' : action.startsWith('bootnext-') ? 'arrow' : action === 'off' ? 'power' : action;
 const vmStates = {DISABLED:'Not configured',CONFIG_ERROR:'Configuration error',UNKNOWN:'Unverified',HOST_UNAVAILABLE:'Windows host not running',STOPPED:'Stopped',GUEST_UNREACHABLE:'VM powered on · SSH unverified',RUNNING:'Running · guest SSH verified',TRANSITIONING:'In progress…'};
-const states = {WINDOWS:'Windows 11', KALI:'Kali dual boot', UNKNOWN:'Unknown', OFF:'Powered off · inferred', TRANSITIONING:'In progress…'};
+const runningStates = ['WINDOWS', 'KALI', 'UBUNTU'];
+const linuxTarget = () => ['kali', 'ubuntu'].includes(snapshot?.status.linux_os) ? snapshot.status.linux_os : '';
 let csrf = '', snapshot = null, timer = null, polling = false, pending = null, view = 'overview', diagnosticPending = false;
 
 let sitesDue = 0;
@@ -70,7 +72,7 @@ function metric(name, value, total, color='teal', suffix='') {
 function activeJob() { return snapshot?.jobs.find(j => j.status === 'running'); }
 function explain(message) {
   if (message.includes('Sending Wake-on-LAN')) return 'Wake-on-LAN sent. Waiting for your desktop to start.';
-  if (message.includes('one-time firmware boot')) return 'Requesting a one-time boot into Kali Linux.';
+  if (message.includes('one-time firmware boot')) return 'Requesting a one-time boot into the selected OS.';
   if (message.includes('Kali one-time')) return 'Requesting a reboot into Windows.';
   if (message.includes('clean reboot')) return message.replace(/^\[pwnbox\]\s*/, '');
   if (message.includes('Requesting clean') || message.includes('Requesting Kali shutdown')) return 'Shutdown requested on the running OS.';
@@ -92,15 +94,26 @@ function renderHistory(jobs, details=false) {
 function render() {
   const {status,thinkpad:tp,desktop:pc,jobs,diagnostic,demo} = snapshot;
   const job = activeJob();
+  const linux = linuxTarget();
+  const linuxLabel = linux ? states[linux.toUpperCase()] : 'Linux dual boot';
+  $('desktop-description').textContent = `Windows 11 / ${linuxLabel}`;
+  $('diagnostic-os-label').textContent = 'Windows / ' + (linuxLabel.split(' ')[0]);
+  $('linux-action-label').textContent = 'Start ' + linuxLabel;
+  $('linux-action-icon').innerHTML = icon(linux || 'desktop');
+  const linuxOption = $('bootnext-linux');
+  if (linuxOption.value !== linux && $('bootnext-os').value !== 'windows') $('bootnext-os').value = 'windows';
+  linuxOption.value = linux;
+  linuxOption.textContent = linuxLabel;
+  linuxOption.disabled = !linux;
   $('demo-banner').hidden = !demo;
   $('desktop-os').textContent = states[status.state] || states.UNKNOWN;
-  const known = status.state === 'WINDOWS' || status.state === 'KALI';
+  const known = runningStates.includes(status.state);
   $('desktop-badge').innerHTML = `${known ? '<span class="dot"></span>' : ''}${known ? 'Running' : status.state === 'TRANSITIONING' ? 'Switching' : status.state === 'OFF' ? 'Not responding' : 'Unknown'}`;
   $('desktop-badge').className = `badge ${known ? 'green' : status.state === 'TRANSITIONING' ? 'amber' : 'muted'}`;
   $('desktop-state-note').textContent = known ? 'Operating system verified over SSH' : status.state === 'OFF' ? 'Off inferred after shutdown · power state is not measured' : status.state === 'TRANSITIONING' ? 'Follow the operation below' : 'Power state has not been confirmed';
   $('status-age').textContent = age(status.checked_at);
   $('current-os-icon').className = `current-os-icon ${known ? status.state.toLowerCase() : ''}`;
-  $('current-os-icon').innerHTML = known ? icon(status.state === 'WINDOWS' ? 'windows' : 'kali') : icon('desktop');
+  $('current-os-icon').innerHTML = icon(known ? status.state.toLowerCase() : 'desktop');
   $('thinkpad-uptime').textContent = uptime(tp.uptime);
   $('thinkpad-age').textContent = age(tp.sampled_at);
   $('desktop-age').textContent = age(pc.sampled_at);
@@ -117,8 +130,11 @@ function render() {
   $('desktop-metrics-error').hidden = !pc.error && (!known || fresh);
   $('desktop-metrics-error').textContent = pc.error || 'Metrics are unavailable or stale. Waiting for a fresh sample.';
   document.querySelectorAll('[data-action]').forEach(button => {
-    button.disabled = !!job || (['off', 'bootnext', 'reboot'].includes(button.dataset.action) && !known) || (button.dataset.action.toUpperCase() === status.state);
-    button.title = button.dataset.action.toUpperCase() === status.state ? 'Already running this OS' : '';
+    const kind = button.dataset.action;
+    const target = kind === 'linux' ? linux : kind;
+    const alreadyRunning = target.toUpperCase() === status.state;
+    button.disabled = !!job || (kind === 'linux' && !linux) || (['off', 'bootnext', 'reboot'].includes(kind) && !known) || alreadyRunning;
+    button.title = alreadyRunning ? 'Already running this OS' : '';
   });
   const vm = snapshot.vmware || {state:'UNKNOWN'};
   const vmFresh = vm.checked_at && Date.now()/1000 - vm.checked_at < 75;
@@ -131,7 +147,7 @@ function render() {
   document.querySelectorAll('[data-action]').forEach(button => {
     if (button.dataset.action === 'vm-start') button.disabled = !!job || !vmEnabled || vmState === 'RUNNING';
     if (button.dataset.action === 'vm-stop') button.disabled = !!job || !vmEnabled || status.state !== 'WINDOWS' || vmState !== 'RUNNING';
-    if (guestBlocksHost && ['kali','off','reboot'].includes(button.dataset.action)) {
+    if (guestBlocksHost && ['linux','off','reboot'].includes(button.dataset.action)) {
       button.disabled = true; button.title = 'Stop Kali VMware and verify it is stopped first';
     }
   });
@@ -180,17 +196,18 @@ function navigate(name) {
 document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => navigate(b.dataset.view)));
 document.querySelectorAll('[data-action]').forEach(button => button.addEventListener('click', () => {
   const kind = button.dataset.action;
-  const action = ['bootnext', 'reboot'].includes(kind) ? `${kind}-${$('bootnext-os').value}` : kind;
+  const action = ['bootnext', 'reboot'].includes(kind) ? `${kind}-${$('bootnext-os').value}` : kind === 'linux' ? linuxTarget() : kind;
+  if (!actions[action]) return;
   const isVm = action.startsWith('vm-');
   const target = isVm ? 'kali' : action.split('-').pop();
-  const targetName = isVm ? (action === 'vm-stop' ? 'Kali VMware stopped' : 'Windows + Kali VMware') : target === 'kali' ? 'Kali dual boot' : 'Windows 11';
+  const targetName = isVm ? (action === 'vm-stop' ? 'Kali VMware stopped' : 'Windows + Kali VMware') : states[target.toUpperCase()];
   pending = {action, request_id:crypto.randomUUID(), confirmed:true};
   $('confirm-title').textContent = actions[action];
-  $('confirm-description').textContent = action === 'vm-start' ? 'Start the separate Kali VMware guest on Windows. If needed, wake the desktop and switch from Kali dual boot to Windows, closing bare-metal applications. Windows must have an interactive user logged in.' : action === 'vm-stop' ? 'Shut down only Kali VMware cleanly. Guest applications will close; Windows and ThinkPad stay online.' : kind === 'bootnext' ? `Set the next boot to ${targetName}. The desktop keeps running; this choice is used once.` : kind === 'reboot' ? `Set BootNext to ${targetName}, then restart the running desktop directly into that OS.` : action === 'off' ? 'Shut down your desktop through the running OS. Your ThinkPad stays online.' : `Start your desktop in ${targetName}. An offline desktop will be woken; switching from another OS requires a reboot.`;
+  $('confirm-description').textContent = action === 'vm-start' ? 'Start the Kali VMware guest on Windows. If needed, wake the desktop and switch to Windows, closing bare-metal applications. Windows must have an interactive user logged in.' : action === 'vm-stop' ? 'Shut down only Kali VMware cleanly. Guest applications will close; Windows and ThinkPad stay online.' : kind === 'bootnext' ? `Set the next boot to ${targetName}. The desktop keeps running; this choice is used once.` : kind === 'reboot' ? `Set BootNext to ${targetName}, then restart the running desktop directly into that OS.` : action === 'off' ? 'Shut down your desktop through the running OS. Your ThinkPad stays online.' : `Start your desktop in ${targetName}. An offline desktop will be woken; switching from another OS requires a reboot.`;
   $('confirm-icon').innerHTML = icon(actionIcon(action));
   $('confirm-icon').className = `confirm-icon ${target}`;
   const current = snapshot?.status.state || 'UNKNOWN';
-  const currentIcon = current === 'WINDOWS' ? 'windows' : current === 'KALI' ? 'kali' : 'desktop';
+  const currentIcon = runningStates.includes(current) ? current.toLowerCase() : 'desktop';
   $('confirm-transition').innerHTML = `<div><span class="transition-icon ${currentIcon}">${icon(currentIcon)}</span><small>Current state</small><b>${esc(states[current] || states.UNKNOWN)}</b></div>${icon('arrow')}<div><span class="transition-icon ${target}">${icon(target === 'off' ? 'power' : target)}</span><small>${kind === 'bootnext' ? 'Next boot only' : 'Requested state'}</small><b>${action === 'off' ? 'Powered off' : targetName}</b></div>`;
   $('confirm-dialog').querySelector('.notice').hidden = kind === 'bootnext';
   $('confirm-dialog').querySelector('.confirm-check').lastChild.textContent = kind === 'bootnext' ? 'I want to set the OS for the next boot.' : 'I have saved my work and want to continue.';

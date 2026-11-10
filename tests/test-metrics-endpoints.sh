@@ -38,4 +38,10 @@ for os in WINDOWS KALI; do
 done
 if bash "$root/bin/pwnbox-metrics" 'KALI; reboot' disk; then echo 'Invalid command accepted'; exit 1; fi
 if bash "$root/bin/pwnbox-metrics" KALI 'disk; reboot'; then echo 'Invalid mode accepted'; exit 1; fi
+printf 'LINUX_OS=ubuntu\n' >> "$work/config"
+for mode in fast disk; do
+    EXPECT_OS=UBUNTU EXPECT_MODE=$mode bash "$root/bin/pwnbox-metrics" UBUNTU "$mode" > "$work/output"
+    "$python_exec" -c 'import json,sys; assert json.load(open(sys.argv[1]))["os"] == "UBUNTU"' "$work/output"
+done
+if bash "$root/bin/pwnbox-metrics" KALI disk; then echo 'Inactive profile accepted'; exit 1; fi
 echo 'PASS: OS metrics allowlist, disk cadence, strict host keys and dedicated multiplex sockets.'

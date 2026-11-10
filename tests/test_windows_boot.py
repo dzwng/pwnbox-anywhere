@@ -35,6 +35,7 @@ class WindowsBootTests(unittest.TestCase):
         # Override transport and evaluate only the generated PowerShell command.
         generated = subprocess.run([self.bash, "-c", """
 source lib/windows.sh
+LINUX_STATE=KALI
 KALI_WINDOWS_BCD_GUID='{00000000-0000-0000-0000-000000000000}'
 remote_action() { printf '%s' "$2"; }
 windows_ps() { printf '%s' "$1"; }

@@ -26,8 +26,11 @@ from sites import SitesCatalog
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "web" / "static"
-STATES = {"WINDOWS", "KALI", "UNKNOWN", "OFF", "TRANSITIONING"}
-ACTIONS = {"windows", "kali", "off", "bootnext-windows", "bootnext-kali", "reboot-windows", "reboot-kali", "vm-start", "vm-stop"}
+RUNNING_STATES = {"WINDOWS", "KALI", "UBUNTU"}
+STATES = RUNNING_STATES | {"UNKNOWN", "OFF", "TRANSITIONING"}
+ACTIONS = {"off", "vm-start", "vm-stop"} | {
+    prefix + os_name.lower() for os_name in RUNNING_STATES for prefix in ("", "bootnext-", "reboot-")
+}
 VM_STATES = {"DISABLED", "UNKNOWN", "HOST_UNAVAILABLE", "STOPPED", "GUEST_UNREACHABLE", "RUNNING"}
 SESSION_TTL = 7 * 86400
 
@@ -141,10 +144,11 @@ class Backend:
 
     def status(self):
         if self.demo:
-            return {"state": self.demo_state, "checked_at": time.time(), "detail": "Simulated data."}
-        result = subprocess.run([str(ROOT / "bin" / "pwnbox"), "status"], capture_output=True, text=True, timeout=40)
-        state = result.stdout.strip()
+            return {"state": self.demo_state, "linux_os": "kali", "checked_at": time.time(), "detail": "Simulated data."}
+        result = subprocess.run([str(ROOT / "bin" / "pwnbox"), "status-web"], capture_output=True, text=True, timeout=40)
+        state, _, linux_os = result.stdout.strip().partition(" ")
         return {"state": state if state in STATES else "UNKNOWN", "checked_at": time.time(),
+                "linux_os": linux_os if linux_os in ("kali", "ubuntu") else None,
                 "detail": result.stderr.strip()[-500:] if state == "UNKNOWN" or state not in STATES else ""}
 
     def metrics(self, state, disk):
@@ -182,13 +186,14 @@ class Backend:
         if result.returncode:
             return {"time": time.time(), "output": "Diagnostics unavailable. Check the controller configuration and dependencies."}
         data = json.loads(result.stdout)
+        labels = {"windows": "WINDOWS", "kali": data.get("linux_state", "KALI")}
         lines = ["LAN gateway: " + ("Reachable" if data['lan_healthy'] else "Unreachable / not configured")]
         for name in ('windows', 'kali'):
             other = 'kali' if name == 'windows' else 'windows'
             if data[other + '_ssh_verified'] and not data[name + '_ssh_verified']:
-                lines.append(name.upper() + ' SSH: Not running; desktop verified as ' + other.upper() + '.')
+                lines.append(labels[name] + ' SSH: Not running; desktop verified as ' + labels[other] + '.')
                 continue
-            lines.append(name.upper() + " SSH: " + ("OS verified" if data[name + '_ssh_verified'] else "Not verified"))
+            lines.append(labels[name] + " SSH: " + ("OS verified" if data[name + '_ssh_verified'] else "Not verified"))
             if data[name + '_detail']:
                 lines.append("  " + data[name + '_detail'].strip())
         return {"time": time.time(), "output": "\n".join(lines)}
@@ -197,6 +202,9 @@ class Backend:
         if action not in ACTIONS:
             raise ValueError("Unsupported controller action.")
         if self.demo:
+            if action.endswith("ubuntu"):
+                emit("The demo Linux boot target is Kali.")
+                return 2
             emit("[pwnbox] Desktop: " + self.demo_state)
             if action in ("vm-start", "vm-stop"):
                 if action == "vm-stop" and self.demo_state != "WINDOWS":
@@ -260,7 +268,7 @@ class ControlCenter:
         self.stop = threading.Event()
         self.view_until = 0
         self.epoch = 0
-        self.state = {"state": "UNKNOWN", "checked_at": None, "detail": "Waiting for a status check."}
+        self.state = {"state": "UNKNOWN", "linux_os": None, "checked_at": None, "detail": "Waiting for a status check."}
         self.thinkpad = {}
         self.desktop = {}
         self.vmware = {"state": "UNKNOWN", "checked_at": None, "detail": "Waiting for VMware check."}
@@ -310,7 +318,7 @@ class ControlCenter:
                         if kind == "metrics":
                             self.desktop["error"] = "Cannot read metrics. Check SSH and the metrics helper; previous data may be stale."
                         elif kind == "status":
-                            self.state = {"state": "UNKNOWN", "checked_at": time.time(), "detail": "OS check failed. See Diagnostics."}
+                            self.state.update(state="UNKNOWN", checked_at=time.time(), detail="OS check failed. See Diagnostics.")
                             self.desktop = {}
                         elif kind == "vmware":
                             self.vmware = {"state": "UNKNOWN", "checked_at": time.time(), "detail": "VMware check failed. Run pwnbox vm-doctor on ThinkPad."}
@@ -336,7 +344,7 @@ class ControlCenter:
                 self.futures["vmware"] = self.pool.submit(self.backend.vm_status), self.epoch
                 self.due["vmware"] = now + 30
             state = self.state["state"]
-            if state in ("WINDOWS", "KALI") and now >= self.due["metrics"] and "metrics" not in self.futures:
+            if state in RUNNING_STATES and now >= self.due["metrics"] and "metrics" not in self.futures:
                 disk = now >= self.due["disk"]
                 self.futures["metrics"] = self.pool.submit(self.backend.metrics, state, disk), self.epoch
                 self.due["metrics"] = now + 5
@@ -355,7 +363,7 @@ class ControlCenter:
                 if action.startswith("vm-"):
                     self.vmware = {"state": "TRANSITIONING", "checked_at": time.time(), "detail": "VM operation in progress."}
                 if not action.startswith("bootnext-") and action != "vm-stop":
-                    self.state = {"state": "TRANSITIONING", "checked_at": time.time(), "detail": "Operation in progress."}
+                    self.state.update(state="TRANSITIONING", checked_at=time.time(), detail="Operation in progress.")
                     self.desktop = {}
                 threading.Thread(target=self.run_job, args=(job_id, action), daemon=True).start()
             return job_id
@@ -377,6 +385,7 @@ class ControlCenter:
             # CLI success includes live verification; no optimistic UI success.
             target = action.removeprefix("reboot-").upper()
             self.state = verified_state or {"state": ("OFF" if action == "off" else target) if code == 0 and not action.startswith(("bootnext-", "vm-")) else "UNKNOWN",
+                          "linux_os": self.state.get("linux_os"),
                           "checked_at": time.time(), "detail": "" if code == 0 else "The requested state has not been verified."}
             self.epoch += 1
             self.vmware = vm_result or {"state": "UNKNOWN", "checked_at": None, "detail": "Waiting for a fresh VMware check."}

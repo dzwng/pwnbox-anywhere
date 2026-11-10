@@ -5,12 +5,12 @@ firmware_snapshot() {
     if [[ $os == WINDOWS ]]; then
         output=$(windows_firmware 2>"$STATE_DIR/firmware.err") || rc=$?
     else
-        output=$(ssh_control KALI firmware 2>"$STATE_DIR/firmware.err") || rc=$?
+        output=$(ssh_control "$os" firmware 2>"$STATE_DIR/firmware.err") || rc=$?
     fi
     if (( rc != 0 )); then
         cat "$STATE_DIR/firmware.err" >&2
         log "Cannot read firmware ($phase, $os; exit $rc)."
-        [[ $os != KALI ]] || log 'Update the Kali control helper and its firmware sudo permission.'
+        [[ $os == WINDOWS ]] || log "Check the $LINUX_OS control helper and its firmware sudo permission."
         return 1
     fi
     while IFS= read -r line; do

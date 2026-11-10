@@ -5,15 +5,15 @@ export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 unset BASH_ENV ENV
 ID=
 source /etc/os-release
-[[ $ID == kali ]] || { echo 'This endpoint requires Kali.' >&2; exit 3; }
+[[ $ID == kali || $ID == ubuntu ]] || { echo 'This endpoint requires Kali or Ubuntu.' >&2; exit 3; }
 if [[ $EUID != 0 ]]; then
     [[ $# == 0 ]] || exit 2
     case "${SSH_ORIGINAL_COMMAND:-}" in
-        status) printf 'PWNBOX_KALI\n';;
+        status) printf 'PWNBOX_%s\n' "${ID^^}";;
         metrics) exec /usr/bin/python3 -I /usr/local/libexec/pwnbox-linux-metrics.py;;
         metrics-fast) exec /usr/bin/python3 -I /usr/local/libexec/pwnbox-linux-metrics.py --fast;;
-        firmware|windows|off|bootnext-windows|bootnext-kali|reboot-windows|reboot-kali) exec sudo -n /usr/local/libexec/pwnbox-kali-control "$SSH_ORIGINAL_COMMAND";;
-        *) echo 'Allowed commands: status, firmware, metrics, metrics-fast, windows, off, bootnext-windows, bootnext-kali, reboot-windows, reboot-kali.' >&2; exit 2;;
+        firmware|windows|off|bootnext-windows|"bootnext-$ID"|reboot-windows|"reboot-$ID") exec sudo -n /usr/local/libexec/pwnbox-kali-control "$SSH_ORIGINAL_COMMAND";;
+        *) echo "Allowed commands: status, firmware, metrics, metrics-fast, windows, off, bootnext-windows, bootnext-$ID, reboot-windows, reboot-$ID." >&2; exit 2;;
     esac
     exit 0
 fi
@@ -37,7 +37,7 @@ case "$1" in
         printf 'PWNBOX_WINDOWS_FIRST=%s\n' "$first"
         exit 0
         ;;
-    windows|bootnext-windows|bootnext-kali|reboot-windows|reboot-kali)
+    windows|bootnext-windows|"bootnext-$ID"|reboot-windows|"reboot-$ID")
         target=${1#*-}
         [[ $1 != windows ]] || target=windows
         read -r boot_id < "/etc/pwnbox/$target-boot-id"

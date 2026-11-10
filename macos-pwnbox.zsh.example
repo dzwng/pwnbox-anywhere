@@ -6,25 +6,26 @@ if [ -n "${ZSH_VERSION:-}" ]; then
   unfunction _pwnbox_windows_ps _pwnbox_wait_for_ssh 2>/dev/null || true
 fi
 PWNBOX_RELAY_HOST=${PWNBOX_RELAY_HOST:-pwnbox-relay}
-PWNBOX_KALI_HOST=${PWNBOX_KALI_HOST:-kali}
+PWNBOX_LINUX_OS=${PWNBOX_LINUX_OS:-kali}
+PWNBOX_KALI_HOST=${PWNBOX_KALI_HOST:-$PWNBOX_LINUX_OS}
 PWNBOX_SOCKS_SOCKET=${PWNBOX_SOCKS_SOCKET:-$HOME/.ssh/pwnbox-socks.sock}
 PWNBOX_VNC_SOCKET=${PWNBOX_VNC_SOCKET:-$HOME/.ssh/pwnbox-vnc.sock}
 pwnbox() {
   case "${1:-help}" in
-    status|wake|windows|kali|off|doctor|vm-status|vm-doctor|vm-start|vm-stop)
+    status|wake|windows|ubuntu|kali|off|doctor|bootnext-windows|bootnext-ubuntu|bootnext-kali|reboot-windows|reboot-ubuntu|reboot-kali|vm-status|vm-doctor|vm-start|vm-stop)
       [ "$#" -eq 1 ] || { printf 'Usage: pwnbox <command>\n' >&2; return 2; }
       ssh -T -o BatchMode=yes -o ConnectTimeout=5 "$PWNBOX_RELAY_HOST" "/usr/local/bin/pwnbox $1"
       ;;
     vm-ssh) shift; ssh "${PWNBOX_VM_HOST:-kali-vm}" "$@";;
     ssh) shift; ssh "$PWNBOX_KALI_HOST" "$@";;
-    help|-h|--help) printf 'pwnbox status|wake|windows|kali|off|doctor|ssh|vm-status|vm-doctor|vm-start|vm-stop|vm-ssh\n';;
+    help|-h|--help) printf 'pwnbox status|wake|windows|ubuntu|kali|off|doctor|ssh|vm-status|vm-doctor|vm-start|vm-stop|vm-ssh\n';;
     *) printf 'Unknown command: %s\n' "$1" >&2; return 2;;
   esac
 }
 # Compatibility aliases now select or shut down the bare-metal OS.
 pc_up() { pwnbox windows; }
 kali_up() { pwnbox kali; }
-pwnbox_up() { pwnbox kali; }
+pwnbox_up() { pwnbox "$PWNBOX_LINUX_OS"; }
 pc_down() { pwnbox off; }
 kali_down() { pwnbox off; }
 pwnbox_down() { pwnbox off; }
@@ -42,7 +43,7 @@ pwnbox_vnc_disconnect() {
   if ssh -S "$PWNBOX_VNC_SOCKET" -O check "$PWNBOX_KALI_HOST" >/dev/null 2>&1; then
     ssh -S "$PWNBOX_VNC_SOCKET" -O exit "$PWNBOX_KALI_HOST" || return
   fi
-  printf 'VNC tunnel closed; Kali desktop session is kept.\n'
+  printf 'VNC tunnel closed; desktop session is kept.\n'
 }
 pwnbox_vnc_stop() {
   ssh "$PWNBOX_KALI_HOST" 'pwnbox-kali vnc stop' || return
@@ -66,7 +67,7 @@ kali_push() {
 }
 
 # VMware helpers use their own SSH identity, sockets and local ports.
-# Existing unqualified helpers continue to target Kali dual boot.
+# Unqualified helpers target the Linux OS installed on the desktop.
 PWNBOX_VM_HOST=${PWNBOX_VM_HOST:-kali-vm}
 _pwnbox_vm_context() (
   PWNBOX_KALI_HOST=$PWNBOX_VM_HOST

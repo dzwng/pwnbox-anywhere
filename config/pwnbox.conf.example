@@ -4,6 +4,8 @@
 DESKTOP_MAC=AA:BB:CC:DD:EE:FF
 # Controller automation uses LAN; Mac interactive endpoints use Tailscale separately.
 WINDOWS_HOST=192.0.2.20
+# Bare-metal Linux profile. KALI_* keys below configure this OS for compatibility.
+LINUX_OS=kali
 KALI_HOST=192.0.2.20
 WINDOWS_USER=your_windows_user
 KALI_USER=your_kali_user

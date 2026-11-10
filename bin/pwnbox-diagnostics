@@ -6,14 +6,14 @@ load_config
 init_state
 windows=false kali=false lan=false
 probe_os WINDOWS && windows=true
-probe_os KALI && kali=true
+probe_os "$LINUX_STATE" && kali=true
 lan_healthy && lan=true
-python3 - "$windows" "$kali" "$lan" "$STATE_DIR" <<'PY'
+python3 - "$windows" "$kali" "$lan" "$STATE_DIR" "$LINUX_STATE" <<'PY'
 import json, sys
 from pathlib import Path
 state = Path(sys.argv[4])
 data = {'windows_ssh_verified': sys.argv[1] == 'true', 'kali_ssh_verified': sys.argv[2] == 'true',
-        'lan_healthy': sys.argv[3] == 'true'}
+        'lan_healthy': sys.argv[3] == 'true', 'linux_state': sys.argv[5]}
 for os_name in ('windows', 'kali'):
     try:
         data[os_name + '_detail'] = (state / ('probe-' + os_name + '.err')).read_text()[-500:]

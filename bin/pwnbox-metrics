@@ -4,8 +4,9 @@ set -Eeuo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 source "$ROOT/lib/common.sh"
 source "$ROOT/lib/config.sh"
-[[ $# == 2 && ( $1 == WINDOWS || $1 == KALI ) && ( $2 == disk || $2 == fast ) ]] || exit 2
+[[ $# == 2 && ( $1 == WINDOWS || $1 == KALI || $1 == UBUNTU ) && ( $2 == disk || $2 == fast ) ]] || exit 2
 load_config
+[[ $1 == WINDOWS || $1 == "$LINUX_STATE" ]] || exit 2
 init_state
 os=$1
 if [[ $os == WINDOWS ]]; then

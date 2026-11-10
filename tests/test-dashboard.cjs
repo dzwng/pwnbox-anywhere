@@ -15,7 +15,7 @@ function element(id) {
   });
   return elements.get(id);
 }
-for (const kind of ['windows','kali','off','bootnext','reboot','vm-start','vm-stop']) {
+for (const kind of ['windows','linux','off','bootnext','reboot','vm-start','vm-stop']) {
   const button = element('action-' + kind); button.dataset.action = kind; actions.push(button);
 }
 const context = vm.createContext({
@@ -49,18 +49,18 @@ const powerRequests = () => requests.filter(r=>r.path === '/api/actions');
     assert.equal(powerRequests().at(-1).payload.action,expected);
     console.log('PASS: confirmed '+kind+' with selection '+os+' sends '+expected);
   }
-  function renderState(host, guest, age=0) {
-    vm.runInContext(`snapshot = {status:{state:${JSON.stringify(host)},checked_at:Date.now()/1000},thinkpad:{},desktop:{},jobs:[],diagnostic:{},vmware:{state:${JSON.stringify(guest)},checked_at:Date.now()/1000-${age}}}; render();`,context);
+  function renderState(host, guest, age=0, linux='kali') {
+    vm.runInContext(`snapshot = {status:{state:${JSON.stringify(host)},linux_os:${JSON.stringify(linux)},checked_at:Date.now()/1000},thinkpad:{},desktop:{},jobs:[],diagnostic:{},vmware:{state:${JSON.stringify(guest)},checked_at:Date.now()/1000-${age}}}; render();`,context);
   }
   renderState('WINDOWS','RUNNING');
   assert.equal(element('desktop-os').textContent,'Windows 11');
   assert.equal(element('vmware-status').textContent,'Running · guest SSH verified');
-  for (const kind of ['kali','off','reboot','vm-start']) assert.equal(element('action-'+kind).disabled,true);
+  for (const kind of ['linux','off','reboot','vm-start']) assert.equal(element('action-'+kind).disabled,true);
   assert.equal(element('action-vm-stop').disabled,false);
   renderState('WINDOWS','STOPPED');
   assert.equal(element('action-vm-start').disabled,false);
   assert.equal(element('action-vm-stop').disabled,true);
-  assert.equal(element('action-kali').disabled,false);
+  assert.equal(element('action-linux').disabled,false);
   renderState('KALI','HOST_UNAVAILABLE');
   assert.equal(element('action-vm-start').disabled,false);
   assert.equal(element('action-vm-stop').disabled,true);
@@ -72,4 +72,19 @@ const powerRequests = () => requests.filter(r=>r.path === '/api/actions');
   assert.equal(element('vmware-status').textContent,'Unverified');
   assert.equal(element('action-vm-stop').disabled,true);
   console.log('PASS: host/guest rendering, disabled controls, stale VM state and confirmed VM actions');
+  renderState('WINDOWS','RUNNING',0,'ubuntu');
+  assert.equal(element('linux-action-label').textContent,'Start Ubuntu dual boot');
+  assert.equal(element('bootnext-linux').value,'ubuntu');
+  assert.equal(element('action-linux').disabled,true);
+  renderState('WINDOWS','STOPPED',0,'ubuntu');
+  assert.equal(element('action-linux').disabled,false);
+  await emit('action-linux','click');
+  element('confirm-check').checked=true;
+  await emit('confirm-action','click');
+  assert.equal(powerRequests().at(-1).payload.action,'ubuntu');
+  renderState('UBUNTU','HOST_UNAVAILABLE',0,'ubuntu');
+  assert.equal(element('desktop-os').textContent,'Ubuntu dual boot');
+  assert.equal(element('action-linux').disabled,true);
+  assert.equal(element('action-vm-start').disabled,false);
+  console.log('PASS: Ubuntu profile selects the Ubuntu boot action and keeps guest controls separate');
 })().catch(error=>{console.error(error);process.exitCode=1;});

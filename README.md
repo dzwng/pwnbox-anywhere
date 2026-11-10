@@ -1,5 +1,9 @@
 # Pwnbox Anywhere v2
 
+Chuyển desktop sang **Windows 11 / Ubuntu dual boot** và giữ Kali trong VMware:
+xem [runbook chuyển sang Ubuntu](docs/ubuntu-migration.md). Các hướng dẫn Kali
+dual boot bên dưới dành cho profile Kali hiện có.
+
 Bật, tắt và chọn **Windows 11 / Kali dual boot / Kali VMware** trên PC ở nhà từ
 MacBook hoặc dashboard qua Tailscale. ThinkPad Debian chạy 24/7 nhận lệnh điều khiển;
 Mac kết nối trực tiếp tới từng Kali để dùng SSH, GUI và browser lab.
