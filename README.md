@@ -1,22 +1,28 @@
 # Pwnbox Anywhere v2
 
-Chuyển desktop sang **Windows 11 / Ubuntu dual boot** và giữ Kali trong VMware:
-xem [runbook chuyển sang Ubuntu](docs/ubuntu-migration.md). Các hướng dẫn Kali
-dual boot bên dưới dành cho profile Kali hiện có.
+Để chuyển sang **Windows 11 / Ubuntu dual boot** và chạy Kali trong VMware,
+làm theo [runbook chuyển sang Ubuntu](docs/ubuntu-migration.md). Mục 3 có
+các lệnh DiskPart để xóa phân vùng Kali và EFI cũ trên SSD HP sau khi xác minh
+Windows dùng EFI trên SSD Lexar. Giữ `D:` vì đây là ổ chứa Kali VMware.
+Nếu đã xóa hai phân vùng, để khoảng 300 GiB **Unallocated** cho Ubuntu và tiếp tục
+từ phần **Cài Ubuntu** trong mục 3.
 
-Bật, tắt và chọn **Windows 11 / Kali dual boot / Kali VMware** trên PC ở nhà từ
-MacBook hoặc dashboard qua Tailscale. ThinkPad Debian chạy 24/7 nhận lệnh điều khiển;
-Mac kết nối trực tiếp tới từng Kali để dùng SSH, GUI và browser lab.
+Bật, tắt và chọn **Windows 11**, **Ubuntu hoặc Kali dual boot**, và **Kali VMware**
+trên PC ở nhà từ MacBook hoặc dashboard qua Tailscale. ThinkPad Debian chạy 24/7
+nhận lệnh điều khiển. Mac kết nối trực tiếp qua SSH và Tailscale.
 
-**Windows là OS mặc định.** Khi yêu cầu Kali, project chọn Kali cho một lần boot.
-Windows và Kali dual boot dùng chung PC, nên chỉ một OS host chạy tại một thời điểm.
-Kali VMware là guest chạy cùng Windows; không chạy đồng thời với Kali dual boot.
+**Windows là OS mặc định.** Khi chọn Linux, controller dùng BootNext cho một lần
+khởi động. Kali VMware chạy khi Windows là OS host.
 
 | Môi trường | Bật/chọn | Dừng | SSH trên Mac |
 |---|---|---|---|
 | Windows | `pwnbox windows` | `pwnbox off` — tắt cả PC | `ssh windows` |
-| Kali dual boot | `pwnbox kali` | `pwnbox off` — tắt cả PC | `ssh kali` |
+| Ubuntu dual boot | `pwnbox ubuntu` | `pwnbox off` — tắt cả PC | `ssh ubuntu` |
+| Kali dual boot (profile cũ) | `pwnbox kali` | `pwnbox off` — tắt cả PC | `ssh kali` |
 | Kali VMware | `pwnbox vm-start` | `pwnbox vm-stop` — chỉ guest | `ssh kali-vm` |
+
+Các ví dụ Kali dual boot bên dưới dành cho profile cũ. Dùng runbook Ubuntu để
+thiết lập profile Ubuntu, SSH và các lệnh BootNext tương ứng.
 
 ## Web Control Center
 

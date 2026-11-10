@@ -17,7 +17,7 @@ PowerShell **Run as administrator**, tại console Windows:
 
 ```powershell
 Get-Disk | Format-Table Number,FriendlyName,PartitionStyle,Size
-Get-Partition | Format-Table DiskNumber,PartitionNumber,DriveLetter,Type,GptType,Size
+Get-Partition | Format-Table DiskNumber,PartitionNumber,DriveLetter,Size,IsSystem,IsBoot
 bcdedit /enum firmware
 manage-bde -status C:
 manage-bde -status D:
@@ -35,14 +35,14 @@ Sơ đồ đọc từ Windows tại thời điểm viết hướng dẫn:
 |---|---|---|
 | Lexar SSD NQ780 1 TB, Disk 0 | EFI Windows 200 MiB, MSR, C:, Recovery | Giữ cả ổ |
 | HP SSD FX900 Plus 2 TB, Disk 1 | Partition 1, NTFS D: `Storage`, chứa VM | Giữ nguyên |
-| HP SSD FX900 Plus 2 TB, Disk 1 | Partition 2, EFI khoảng 1 GB | Giữ nguyên, có thể dùng làm ESP Ubuntu |
-| HP SSD FX900 Plus 2 TB, Disk 1 | Partition 3, GPT Linux, 321.12 GB (299.07 GiB) | Xác nhận là Kali rồi dùng cho Ubuntu |
+| HP SSD FX900 Plus 2 TB, Disk 1 | Partition 2, EFI 954 MiB | Dùng lại cho Ubuntu hoặc xóa khi dọn hẳn Kali |
+| HP SSD FX900 Plus 2 TB, Disk 1 | Partition 3, GPT Linux, 321.12 GB (299.07 GiB) | Xác nhận là Kali rồi xóa hoặc format cho Ubuntu |
 | Kingston DataTraveler 64 GB, Disk 2 | USB E: tại thời điểm kiểm tra | Chỉ chọn trong Rufus nếu đúng USB định ghi |
 
 Disk number và tên `/dev/nvme...` có thể đổi sau reboot. Nhận diện bằng model,
 kích thước, thứ tự phân vùng và filesystem. Kiểu GPT Linux tự nó chưa xác nhận
-nội dung là Kali. EFI trên HP nằm giữa D: và phân vùng Linux, nên khoảng trống
-sau khi xóa Linux không liền kề D: để dùng **Extend Volume** trực tiếp.
+nội dung là Kali. Nếu chỉ xóa phân vùng Linux và giữ EFI trên HP, EFI nằm giữa
+D: và vùng trống nên **Extend Volume** không gộp trực tiếp được.
 [Windows Disk Management](https://support.microsoft.com/en-gb/windows/experience/storage-filemanagement/disk-management-in-windows).
 
 ## 2. Tạo USB trước khi đụng phân vùng
@@ -65,24 +65,90 @@ lsblk -o NAME,MODEL,SIZE,FSTYPE,LABEL,PARTUUID,MOUNTPOINTS
 Đối chiếu phân vùng Linux khoảng 299 GiB trên SSD HP với phân vùng Kali đã sao
 lưu. Trong Kali đang chạy, dùng thêm `findmnt /` và `findmnt /boot/efi` để xác
 nhận root và EFI. Nếu chỉ còn USB live và chưa nhận ra nội dung phân vùng Linux,
-mở bằng chế độ chỉ đọc để xác nhận trước khi sửa.
+mở bằng chế độ chỉ đọc để xác nhận trước khi sửa. Nếu đã xóa hai phân vùng,
+chuyển tới phần **Cài Ubuntu** bên dưới.
+
+### Xóa hẳn Kali và EFI cũ bằng DiskPart
+
+Thực hiện từ Windows sau khi sao lưu và thử boot USB. Kết quả `Get-Partition`
+phải cho thấy EFI 200 MiB trên Lexar có `IsSystem=True` và EFI 954 MiB trên
+HP có `IsSystem=False`. Nếu khác hoặc chưa xác nhận phân vùng Linux là Kali,
+dừng trước khi xóa.
+
+Trong PowerShell **Run as administrator**, nhập từng dòng. Nếu số disk khác
+bảng, xác định lại bằng model và dung lượng trước khi chọn.
+
+```text
+diskpart
+list disk
+select disk 1
+detail disk
+list partition
+```
+
+Nếu phân vùng Kali khoảng 299 GiB còn trong danh sách và vẫn là Partition 3,
+chọn và kiểm tra:
+
+```text
+select partition 3
+detail partition
+```
+
+Chỉ khi đúng SSD HP 2 TB và phân vùng Kali khoảng 299 GiB đang được chọn, chạy:
+
+```text
+delete partition override
+list partition
+```
+
+Nếu phân vùng Linux đã được xóa trước đó, chuyển thẳng tới bước này sau khi
+xác định SSD HP. Từ danh sách hiện tại, xác định lại số phân vùng EFI 954 MiB
+trên HP. Với sơ đồ ở mục 1, đó là Partition 2. Chọn và kiểm tra:
+
+```text
+select partition 2
+detail partition
+```
+
+Khi đã xác nhận đúng EFI 954 MiB trên HP, chạy:
+
+```text
+delete partition override
+list partition
+exit
+```
+
+`override` xóa phân vùng đang chọn. Tránh lệnh `clean` vì nó tác động lên cả
+ổ đĩa, gồm D:. Sau khi xóa, Disk Management sẽ hiện D: và khoảng 300 GiB
+**Unallocated** trên HP. Để vùng này cho Ubuntu rồi thử boot lại Windows qua
+Windows Boot Manager trước khi cài.
+[Microsoft — DiskPart delete partition](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/delete-partition).
+
+Nếu UEFI vẫn hiện mục **Kali**, trong Ubuntu live chạy `sudo efibootmgr -v`.
+Chỉ khi xác nhận đúng mục có đường dẫn tới loader Kali, chạy
+`sudo efibootmgr -b NNNN -B` với số `BootNNNN` tương ứng. Giữ mục
+**Windows Boot Manager**.
+[Tài liệu efibootmgr](https://manpages.debian.org/bookworm/efibootmgr/efibootmgr.8.en.html).
+
+### Cài Ubuntu
 
 1. Từ Ubuntu live, mở **Install Ubuntu → Interactive installation → Manual
    installation**.
-2. Chọn đúng phân vùng Kali đã xác nhận. Nếu dùng hết chỗ Kali, sửa phân vùng đó
-   thành **ext4**, mount point **/**, bật **format cho đúng phân vùng này**. Nếu
-   muốn cấp ít hơn, xóa đúng phân vùng Linux, tạo ext4 **/** với dung lượng mong
-   muốn và để phần còn lại **unallocated**. Format/xóa sẽ mất dữ liệu Kali cũ.
-3. Nếu màn hình cho chọn EFI, dùng phân vùng EFI khoảng 1 GB sẵn có trên SSD HP
-   cho **/boot/efi**, bỏ chọn format. Giữ EFI của Windows trên Lexar. Nếu installer
-   báo lỗi hoặc màn hình tổng kết cho thấy thay đổi ngoài dự kiến, quay lại và
-   kiểm tra thay vì xác nhận. Tránh **Erase disk** trên cả hai SSD.
+2. **Nếu đã xóa cả hai phân vùng**, dùng vùng **Unallocated** khoảng 300 GiB
+   trên SSD HP. Để Ubuntu có EFI riêng, tạo **EFI System Partition** FAT32
+   khoảng **1 GiB** cho **/boot/efi**, rồi tạo phân vùng **ext4** cho **/** từ
+   phần dung lượng còn lại.
+3. **Nếu giữ EFI cũ**, dùng EFI khoảng 1 GiB trên HP cho **/boot/efi** nếu
+   installer cho chọn và bỏ chọn format. Đặt phân vùng Kali đã xác nhận thành
+   **ext4** cho **/** và bật format cho riêng phân vùng root. Nếu muốn cấp ít
+   dung lượng hơn, tạo root nhỏ hơn và để phần dư **Unallocated**.
 4. Nếu gặp cảnh báo BitLocker, dừng ở màn hình đó và kiểm tra ổ installer muốn
-   truy cập. Việc dùng phân vùng Linux có sẵn không cần thu nhỏ C: hay D:.
+   truy cập. Cài vào chỗ Kali cũ không cần thu nhỏ C: hay D:.
    [Ubuntu và BitLocker](https://ubuntu.com/desktop/docs/en/latest/reference/bitlocker-during-ubuntu-installation/).
-5. Xem lại danh sách phân vùng bị format, xác nhận chỉ là phân vùng root Ubuntu
-   rồi cài. Sau reboot rút USB, chọn thử entry **ubuntu**, rồi thử **Windows Boot
-   Manager**. Đặt lại Windows Boot Manager đứng đầu nếu installer đã đổi thứ tự.
+5. Kiểm tra màn hình tổng kết. Chỉ chấp nhận format **root Ubuntu** và **EFI
+   mới tạo trên HP** nếu có. Giữ D: và cả ổ Lexar. Tránh **Erase disk**. Sau khi
+   cài, rút USB và thử boot qua **ubuntu** rồi **Windows Boot Manager**. Đặt lại
+   Windows Boot Manager đứng đầu nếu installer đã đổi thứ tự.
    [Hướng dẫn cài Ubuntu](https://ubuntu.com/desktop/docs/en/latest/tutorial/install-ubuntu-desktop/).
 
 Nếu chọn mã hóa Ubuntu bằng passphrase lúc boot, kiểm tra cách mở khóa trước khi
