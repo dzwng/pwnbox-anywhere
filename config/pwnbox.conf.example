@@ -17,7 +17,8 @@ KALI_WINDOWS_BCD_GUID={00000000-0000-0000-0000-000000000000}
 WINDOWS_IDENTITY_FILE=~/.ssh/pwnbox_control_windows
 KALI_IDENTITY_FILE=~/.ssh/pwnbox_control_kali
 KNOWN_HOSTS_FILE=~/.ssh/pwnbox_control_known_hosts
-WOL_BROADCAST=192.0.2.255
+# Use the IPv4 broadcast on the desktop LAN, or derive it from the on-link gateway below.
+WOL_BROADCAST=auto
 WOL_PORT=9
 # A LAN gateway known to answer ping. Required to infer OFF after shutdown.
 LAN_HEALTH_HOST=192.0.2.1

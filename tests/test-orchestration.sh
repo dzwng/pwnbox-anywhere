@@ -125,6 +125,8 @@ reset WINDOWS; export MOCK_DISCONNECT=1; run 3 off; actions 'windows->off'
 reset OFF; export MOCK_WOL_FAIL=1
 printf 'WOL_RETRY_INTERVAL=1\n' >> "$work/config"
 run 4 wake; [[ $(wc -l < "$work/actions") -le 3 ]]
+[[ $(cat "$work/err") == *'Wake-on-LAN timed out'* ]]
+printf 'WOL_RETRY_INTERVAL=30\n' >> "$work/config"
 reset WINDOWS; export MOCK_LAN_DOWN=1; run 3 off; actions ''
 reset WINDOWS; export MOCK_HUNG=1; run 3 status
 reset WINDOWS
@@ -132,6 +134,9 @@ identity=$(printf '%s' '02:00:00:00:00:20|192.0.2.20|192.0.2.20' | cksum)
 state_file="$work/state/state-${identity%% *}"
 printf 'TRANSITIONING KALI %s\n' "$(( $(date +%s) + 60 ))" > "$state_file"
 printf OFF > "$work/desktop"; run 0 status; [[ $(cat "$work/out") == TRANSITIONING ]]
+printf 'TRANSITIONING WAKE %s\n' "$(( $(date +%s) + 60 ))" > "$state_file"
+run 0 windows; actions wake
+reset OFF
 printf 'TRANSITIONING KALI 1\n' > "$state_file"; run 3 status
 printf 'OFF NONE 1\n' > "$state_file"; run 3 status
 reset WINDOWS

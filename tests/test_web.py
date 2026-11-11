@@ -1,7 +1,8 @@
 """Security, operation lifecycle and demand-driven metrics. No hardware access."""
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 import http.client
 import json
+import os
 from pathlib import Path
 import sqlite3
 import sys
@@ -249,6 +250,17 @@ class HTTPTests(unittest.TestCase):
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_operation_finishes_even_if_a_child_still_holds_stdout(self):
+        read_fd, write_fd = os.pipe()
+        with os.fdopen(read_fd) as stdout, patch("app.subprocess.Popen") as popen, ThreadPoolExecutor(1) as pool:
+            popen.return_value.stdout = stdout
+            popen.return_value.wait.return_value = 4
+            operation = pool.submit(Backend().operate, "windows", lambda _: None)
+            try:
+                self.assertEqual(operation.result(timeout=5), 4)
+            finally:
+                os.close(write_fd)
+
     def test_demo_vm_start_stop_and_host_guard(self):
         backend = Backend(demo=True)
         with patch("app.time.sleep"):

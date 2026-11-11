@@ -31,14 +31,27 @@ fi
 EOF
 cat > "$work/fake/systemd-run" <<'EOF'
 #!/usr/bin/env bash
-[[ $* == *'--on-active=3s /usr/bin/systemctl reboot' ]] || exit 99
-printf 'reboot\n' >> "$MOCK_DIR/actions"
+case "$*" in
+    *'--on-active=3s /usr/bin/systemctl reboot') printf 'reboot\n' >> "$MOCK_DIR/actions";;
+    *'--on-active=3s --timer-property=AccuracySec=1s --timer-property=RemainAfterElapse=no /usr/bin/systemctl poweroff')
+        printf 'poweroff\n' >> "$MOCK_DIR/actions";;
+    *) exit 99;;
+esac
 EOF
 cat > "$work/fake/sudo" <<'EOF'
 #!/usr/bin/env bash
 [[ $1 == -n && $2 == /usr/local/libexec/pwnbox-kali-control && $# == 3 ]] || exit 99
 printf 'sudo:%s\n' "$3" >> "$MOCK_DIR/actions"
 printf 'PWNBOX_ACCEPTED\n'
+EOF
+cat > "$work/fake/busctl" <<'EOF'
+#!/usr/bin/env bash
+[[ $* == *'org.freedesktop.login1.Manager ListInhibitors' ]] || exit 99
+if [[ ${MOCK_SHUTDOWN_BLOCK:-0} == 1 ]]; then
+    printf '%s\n' '{"type":"a(ssssuu)","data":[[["sleep:shutdown","GNOME","user session inhibited","block",1000,1234]]]}'
+else
+    printf '%s\n' '{"type":"a(ssssuu)","data":[[["shutdown","Update","Saving state","delay",0,123],["sleep","GNOME","Desktop active","block",1000,1234]]]}'
+fi
 EOF
 chmod +x "$work/fake/"*
 count=0
@@ -93,4 +106,8 @@ unset MOCK_EUID
 run 0 bootnext-ubuntu; actions 'bootnext:0002'
 run 0 reboot-ubuntu; actions $'bootnext:0002\nreboot'
 run 2 reboot-kali; actions ''
+run 0 off; actions 'poweroff'; [[ $(cat "$work/out") == *PWNBOX_ACCEPTED* ]]
+export MOCK_SHUTDOWN_BLOCK=1
+run 1 off; actions ''; [[ ! -s $work/out ]]
+[[ $(cat "$work/err") == *'Shutdown blocked by GNOME (PID 1234): user session inhibited'* ]]
 echo "PASS: $count Linux endpoint checks; no actual firmware, sudo or reboot."

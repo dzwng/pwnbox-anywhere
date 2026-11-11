@@ -47,6 +47,13 @@ Windows BootNext dùng firmware GUID Kali hoặc `{bootmgr}` cho Windows;
 `Wake-on: g`. V2 không tự đổi NIC đang chạy.
 Magic packet phải đến đúng broadcast domain; WoL không chọn OS. Boot mặc định là Windows.
 
+Trên ThinkPad, đặt `WOL_BROADCAST=auto` và `LAN_HEALTH_HOST` là địa chỉ IPv4 của
+gateway trên cùng LAN với desktop. Controller lấy broadcast từ interface đi tới
+gateway. Cũng có thể đặt `WOL_BROADCAST` bằng địa chỉ broadcast LAN cụ thể.
+`pwnbox wake` in địa chỉ đích đã gửi và chờ một trong hai OS xác minh qua SSH.
+Nếu desktop vẫn tắt khi hết `WAKE_TIMEOUT`, đối chiếu `DESKTOP_MAC` với MAC của
+cổng Ethernet đang cắm trên desktop. Nếu desktop đã lên, xem kết quả SSH ở Diagnostics.
+
 Windows setup hỗ trợ `-DisableFastStartup`, `-EnableWakeOnLan -EthernetAdapter Ethernet`.
 WoL BIOS/NIC và nguồn NIC khi S5 vẫn cần kiểm tra. Sau shutdown từ Kali, thử wake lần nữa.
 

@@ -64,6 +64,9 @@ wait_ready() {
         fi
         sleep "$POLL_INTERVAL"
     done
+    if $retry_wol; then
+        fail 4 'Wake-on-LAN timed out: neither OS was verified over SSH. If the desktop stayed off, check the wired MAC, LAN broadcast and firmware Wake-on-LAN settings. If it powered on, check SSH in Diagnostics.'
+    fi
     fail 4 "Timed out waiting for $target; last observed state: $STATE."
 }
 wait_reboot() {
@@ -82,6 +85,10 @@ wait_reboot() {
 wait_off() {
     local deadline samples=0
     deadline=$(( $(now) + SHUTDOWN_TIMEOUT ))
+    if $ACTION_ACK; then
+        log 'Shutdown request acknowledged by the desktop.'
+    fi
+    log "Waiting for the desktop to stop responding (timeout ${SHUTDOWN_TIMEOUT}s)..."
     while (( $(now) < deadline )); do
         if lan_healthy && ! desktop_alive; then samples=$((samples + 1)); else samples=0; fi
         if (( samples >= OFF_SAMPLES )); then
@@ -93,5 +100,5 @@ wait_off() {
         fi
         sleep "$POLL_INTERVAL"
     done
-    fail 4 'Shutdown not verified. Check LAN_HEALTH_HOST and the desktop console.'
+    fail 4 'Shutdown not verified. If Ubuntu or Kali is still running, check the pwnbox-poweroff journal on the desktop. If the desktop is off, check LAN_HEALTH_HOST and desktop IPs.'
 }

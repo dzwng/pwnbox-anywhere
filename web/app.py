@@ -231,7 +231,7 @@ class Backend:
                 self.demo_state = target
                 emit("[pwnbox] " + target + " verified after reboot (demo).")
                 return 0
-            emit("[pwnbox] Requesting clean shutdown..." if action == "off" else "[pwnbox] Sending Wake-on-LAN / one-time boot request...")
+            emit("[pwnbox] Requesting clean shutdown..." if action == "off" else "[pwnbox] Starting the requested OS (demo)...")
             time.sleep(2)
             emit("[pwnbox] Waiting for " + ("OFF" if action == "off" else action.upper()) + "...")
             time.sleep(2)
@@ -240,9 +240,14 @@ class Backend:
             return 0
         proc = subprocess.Popen([str(ROOT / "bin" / "pwnbox"), action], stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        stop_reading = threading.Event()
+
         def read():
-            for line in iter(lambda: proc.stdout.readline(2048), ""):
-                emit(line.strip())
+            with proc.stdout:
+                for line in iter(lambda: proc.stdout.readline(2048), ""):
+                    if stop_reading.is_set():
+                        break
+                    emit(line.strip())
         reader = threading.Thread(target=read, daemon=True)
         reader.start()
         try:
@@ -253,7 +258,9 @@ class Backend:
             emit("Operation timed out; inspect current state before retrying.")
             code = 4
         reader.join(timeout=2)
-        proc.stdout.close()
+        # A child may still hold the write end. Closing the stream here can
+        # block on the reader's I/O lock and prevent the job from finishing.
+        stop_reading.set()
         return code
 
 

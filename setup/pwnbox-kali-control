@@ -55,7 +55,26 @@ case "$1" in
             systemd-run --quiet --collect --unit=pwnbox-reboot --on-active=3s /usr/bin/systemctl reboot
         fi
         ;;
-    off) systemd-run --quiet --collect --unit=pwnbox-poweroff --on-active=3s /usr/bin/systemctl poweroff;;
+    off)
+        inhibitors=$(busctl --system --timeout=2s --json=short call org.freedesktop.login1 \
+            /org/freedesktop/login1 org.freedesktop.login1.Manager ListInhibitors)
+        /usr/bin/python3 -I -c '
+import json
+import sys
+
+inhibitors, = json.load(sys.stdin)["data"]
+blocked = False
+for what, who, why, mode, uid, pid in inhibitors:
+    if mode == "block" and "shutdown" in what.split(":"):
+        print(f"Shutdown blocked by {who} (PID {pid}): {why}", file=sys.stderr)
+        blocked = True
+if blocked:
+    sys.exit("Save your work and close the blocking app or sign out of the desktop session before retrying.")
+' <<< "$inhibitors"
+        systemd-run --quiet --collect --unit=pwnbox-poweroff --on-active=3s \
+            --timer-property=AccuracySec=1s --timer-property=RemainAfterElapse=no \
+            /usr/bin/systemctl poweroff
+        ;;
     *) exit 2;;
 esac
 printf 'PWNBOX_ACCEPTED\n'

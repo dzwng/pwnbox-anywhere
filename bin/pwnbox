@@ -86,8 +86,17 @@ trap 'operation_exit "$?"' EXIT
 detect_state
 log "Desktop: $STATE"
 if [[ $STATE == TRANSITIONING ]]; then
-    log 'Waiting for the previous transition to settle...'
-    wait_ready ANY "$BOOT_TIMEOUT"
+    case "$CACHED_TARGET:$COMMAND" in
+        WAKE:wake|WAKE:windows|WAKE:"$LINUX_OS"|WAKE:vm-start)
+            # The operation lock is ours. An interrupted wake can be retried
+            # since it only sent magic packets and did not request a reboot.
+            log 'Retrying an interrupted Wake-on-LAN operation.'
+            ;;
+        *)
+            log 'Waiting for the previous transition to settle...'
+            wait_ready ANY "$BOOT_TIMEOUT"
+            ;;
+    esac
 fi
 case "$COMMAND" in
     bootnext-*|reboot-*)

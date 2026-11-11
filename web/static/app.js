@@ -71,7 +71,8 @@ function metric(name, value, total, color='teal', suffix='') {
 // Width classes are defined in style.css; no eval, external scripts or inline handlers.
 function activeJob() { return snapshot?.jobs.find(j => j.status === 'running'); }
 function explain(message) {
-  if (message.includes('Sending Wake-on-LAN')) return 'Wake-on-LAN sent. Waiting for your desktop to start.';
+  if (message.includes('Wake-on-LAN sent to')) return 'Wake-on-LAN sent. Waiting for your desktop to start.';
+  if (message.includes('Sending Wake-on-LAN')) return 'Sending Wake-on-LAN to the desktop…';
   if (message.includes('one-time firmware boot')) return 'Requesting a one-time boot into the selected OS.';
   if (message.includes('Kali one-time')) return 'Requesting a reboot into Windows.';
   if (message.includes('clean reboot')) return message.replace(/^\[pwnbox\]\s*/, '');
@@ -153,8 +154,15 @@ function render() {
   });
   $('vmware-host-warning').hidden = !guestBlocksHost;
   $('bootnext-os').disabled = !!job;
-  $('operation').hidden = !job;
-  if (job) $('operation').innerHTML = `<div class="operation-title"><div class="operation-heading"><span class="operation-icon">${icon(actionIcon(job.action))}</span><div><span class="eyebrow">OPERATION IN PROGRESS</span><h3>${esc(actions[job.action])}</h3></div></div><span class="spinner" aria-label="Processing"></span></div><p>Your controller is processing and verifying this request.</p><div class="operation-events">${job.events.slice(-5).map(e => `<div><span class="event-marker"></span><span>${esc(explain(e.message))}</span><time>${esc(time(e.time))}</time></div>`).join('') || '<div>Request accepted. Preparing to check the desktop…</div>'}</div><div class="operation-footnote">${icon('shield')}You can close or reload this page. The operation continues on your ThinkPad.</div>`;
+  const failed = ['failed', 'interrupted'].includes(jobs[0]?.status) ? jobs[0] : null;
+  const operation = job || failed;
+  $('operation').hidden = !operation;
+  if (operation) {
+    const title = job ? 'OPERATION IN PROGRESS' : failed.status === 'interrupted' ? 'OPERATION INTERRUPTED' : 'OPERATION FAILED';
+    const events = operation.events.slice(-5).map(e => `<div><span class="event-marker"></span><span>${esc(explain(e.message))}</span><time>${esc(time(e.time))}</time></div>`).join('');
+    const summary = job ? 'You can close or reload this page. The operation continues on your ThinkPad.' : 'Check the result before retrying. See Activity for the full log.';
+    $('operation').innerHTML = `<div class="operation-title"><div class="operation-heading"><span class="operation-icon">${icon(actionIcon(operation.action))}</span><div><span class="eyebrow">${title}</span><h3>${esc(actions[operation.action] || operation.action)}</h3></div></div>${job ? '<span class="spinner" aria-label="Processing"></span>' : ''}</div><div class="operation-events">${events}</div><div class="operation-footnote">${icon('shield')}${summary}</div>`;
+  }
   $('recent-history').innerHTML = renderHistory(jobs.slice(0,4));
   // Preserve expanded history details across periodic snapshots.
   if (!$('full-history').contains(document.activeElement) && ![...$('full-history').querySelectorAll('details')].some(d => d.open)) $('full-history').innerHTML = renderHistory(jobs,true);
