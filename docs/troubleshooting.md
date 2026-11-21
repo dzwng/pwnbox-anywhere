@@ -10,6 +10,7 @@
 | bcdedit Access denied | SSH account phải admin và remote session phải chạy được `bcdedit /enum firmware` |
 | BootNext thất bại | Dừng; xác minh GUID/ID ở console; không tự sửa boot order/EFI |
 | Shutdown không xác nhận OFF | LAN_HEALTH_HOST có trả ping không? Máy còn phản hồi? Action có ack không? |
+| Linux nhận lệnh (ack) nhưng không reboot, timeout; hoặc `off` báo `Shutdown blocked by …` | Helper cũ bị block inhibitor của desktop chặn (systemd >= 257, ví dụ terminal có tiến trình đang chạy). `journalctl -u pwnbox-reboot -u pwnbox-poweroff` có `Operation denied due to active block inhibitor`; chạy `sudo bash setup/update-kali-control.sh` trên OS Linux đó |
 | OFF cache hết hạn | Trả UNKNOWN để tránh dùng thông tin cũ làm bằng chứng |
 | Exit 6 | Lệnh điều phối khác đang chạy; chờ timeout/completion |
 | WoL không bật máy | MAC/broadcast, BIOS/ErP, Fast Startup, Ethernet, WoL sau Kali shutdown |

@@ -25,6 +25,15 @@ read_boot_order() {
     [[ $BOOT_ORDER =~ ^[[:xdigit:]]{4}(,[[:xdigit:]]{4})*$ ]] || { echo 'Cannot read firmware BootOrder.' >&2; return 5; }
     BOOT_ORDER=${BOOT_ORDER^^}
 }
+schedule_power() {
+    # logind (systemd >= 257) enforces block inhibitors against root too. A desktop
+    # session holds one whenever an app inhibits logout (e.g. a terminal with a
+    # foreground process), so an explicit remote request must override it or the
+    # delayed job fails after PWNBOX_ACCEPTED. Delay inhibitors still run.
+    systemd-run --quiet --collect --unit="pwnbox-$1" --on-active=3s \
+        --timer-property=AccuracySec=1s --timer-property=RemainAfterElapse=no \
+        /usr/bin/systemctl --check-inhibitors=no "$1"
+}
 case "$1" in
     firmware)
         read_boot_order
@@ -52,29 +61,10 @@ case "$1" in
         [[ $before == "$BOOT_ORDER" ]] || { echo 'Firmware BootOrder changed while setting BootNext; reboot cancelled.' >&2; exit 5; }
         efibootmgr | grep -i "^BootNext: $boot_id$" >/dev/null || { echo 'BootNext verification failed.' >&2; exit 5; }
         if [[ $1 != bootnext-* ]]; then
-            systemd-run --quiet --collect --unit=pwnbox-reboot --on-active=3s /usr/bin/systemctl reboot
+            schedule_power reboot
         fi
         ;;
-    off)
-        inhibitors=$(busctl --system --timeout=2s --json=short call org.freedesktop.login1 \
-            /org/freedesktop/login1 org.freedesktop.login1.Manager ListInhibitors)
-        /usr/bin/python3 -I -c '
-import json
-import sys
-
-inhibitors, = json.load(sys.stdin)["data"]
-blocked = False
-for what, who, why, mode, uid, pid in inhibitors:
-    if mode == "block" and "shutdown" in what.split(":"):
-        print(f"Shutdown blocked by {who} (PID {pid}): {why}", file=sys.stderr)
-        blocked = True
-if blocked:
-    sys.exit("Save your work and close the blocking app or sign out of the desktop session before retrying.")
-' <<< "$inhibitors"
-        systemd-run --quiet --collect --unit=pwnbox-poweroff --on-active=3s \
-            --timer-property=AccuracySec=1s --timer-property=RemainAfterElapse=no \
-            /usr/bin/systemctl poweroff
-        ;;
+    off) schedule_power poweroff;;
     *) exit 2;;
 esac
 printf 'PWNBOX_ACCEPTED\n'

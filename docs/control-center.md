@@ -122,7 +122,8 @@ sudo bash setup/update-kali-control.sh --kali-boot-id 0002
 
 Script giữ key và Windows ID hiện có, kiểm tra cả hai entry, thêm quyền cho đúng
 bốn lệnh BootNext/Reboot và lệnh `firmware` chỉ đọc. Không gửi reboot và không đặt BootNext khi cài.
-Lần chạy sau có thể bỏ `--kali-boot-id` để dùng ID đã lưu. Windows dùng endpoint
+Lần chạy sau có thể bỏ `--kali-boot-id` để dùng ID đã lưu. Trên Ubuntu dùng cùng script
+(`--ubuntu-boot-id` nếu chưa lưu ID). Windows dùng endpoint
 hiện có, không cần thêm agent. Gói release mới vẫn dùng `UPDATE-FROM-WINDOWS.ps1`
 để cập nhật ThinkPad; cập nhật endpoint Kali thực hiện riêng khi Kali đang chạy.
 

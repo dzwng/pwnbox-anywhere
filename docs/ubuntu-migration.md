@@ -221,6 +221,11 @@ sudo bash setup/setup-kali.sh --user "$(id -un)" \
 sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
 ```
 
+Cập nhật helper về sau (giữ key và boot ID đã lưu, không gửi reboot/BootNext):
+`sudo bash setup/update-kali-control.sh`. Shutdown/reboot/chuyển Windows từ
+controller bỏ qua *block* inhibitor của phiên desktop (ví dụ terminal còn tiến
+trình chạy); *delay* inhibitor vẫn được chờ. Lưu công việc trước khi gửi lệnh.
+
 Từ ThinkPad, thay `UBUNTU_USER@UBUNTU_LAN_IP` bằng giá trị thật, so fingerprint
 với console trước khi chấp nhận. Nếu SSH dùng cổng riêng, thêm `-p PORT`.
 
